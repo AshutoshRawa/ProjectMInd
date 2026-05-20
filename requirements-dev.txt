@@ -1,0 +1,9 @@
+# =============================================================================
+# ProjectMind — development dependencies
+# =============================================================================
+# Install with:  pip install -r requirements-dev.txt
+# Includes everything from the runtime file plus testing / linting tools.
+
+-r requirements.txt
+
+pytest>=8.0,<9.0

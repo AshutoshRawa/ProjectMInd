@@ -1,0 +1,30 @@
+# =============================================================================
+# ProjectMind — example user configuration
+# =============================================================================
+# Copy this file to `config/config.yaml` and edit the values you want to
+# override.  Anything you omit here will fall back to the defaults shipped
+# in `config/default_config.yaml`.
+#
+# You can also override any value with an environment variable, e.g.
+#     export PROJECTMIND_LOGGING__LEVEL=DEBUG
+# =============================================================================
+
+app:
+  # Give this installation a stable identifier so multi-project setups
+  # can tell their vaults apart.
+  instance_id: "my-laptop"
+
+logging:
+  level: "DEBUG"            # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  console_color: true
+
+paths:
+  # Point ProjectMind at the codebase you want it to learn about.
+  project_root: "."
+  # Where the Obsidian-compatible vault lives.
+  vault_dir: "vault"
+
+ai:
+  # Override the model if you have a smaller / larger one pulled in Ollama.
+  default_model: "qwen2.5-coder:7b"
+  ollama_host: "http://localhost:11434"

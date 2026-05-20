@@ -1,0 +1,25 @@
+# =============================================================================
+# ProjectMind — project metadata
+# =============================================================================
+# Module 1 keeps this file lean.  We declare metadata + pytest configuration
+# only; runtime/dev dependencies still live in requirements*.txt so casual
+# contributors don't need build-system tooling.
+# =============================================================================
+
+[project]
+name = "projectmind"
+version = "0.1.0"
+description = "Autonomous AI-powered developer memory and documentation engine"
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+# Promote warnings from our own first-party code to errors, but leave
+# third-party deprecation noise (e.g. PyYAML on newer Pythons) alone.
+filterwarnings = [
+    "error::DeprecationWarning:core.*",
+    "error::DeprecationWarning:obsidian.*",
+]

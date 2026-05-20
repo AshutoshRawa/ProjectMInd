@@ -1,0 +1,366 @@
+# ProjectMind
+
+> **Autonomous AI-powered developer memory and documentation engine.**
+>
+> Local-first software intelligence — *not* a chatbot, *not* an agent
+> framework, *not* an AI wrapper.
+
+ProjectMind watches AI-assisted software projects and incrementally builds
+long-term **project intelligence**: architecture maps, feature histories,
+bug timelines, API catalogues, and an Obsidian-compatible knowledge graph
+you actually own.
+
+This repository currently ships **Module 1: Foundation Engine**.  Higher
+modules (file watcher, AI summaries, code analysis, memory engine, graph
+builder, etc.) are stubbed out as interfaces and will be filled in over
+time — see [Roadmap](#roadmap).
+
+---
+
+## Table of contents
+
+1. [What's in Module 1](#whats-in-module-1)
+2. [Quick start](#quick-start)
+3. [Project layout](#project-layout)
+4. [Architecture](#architecture)
+5. [Startup flow](#startup-flow)
+6. [Configuration](#configuration)
+7. [Logging](#logging)
+8. [The vault](#the-vault)
+9. [Testing](#testing)
+10. [Roadmap](#roadmap)
+11. [Future scalability notes](#future-scalability-notes)
+
+---
+
+## What's in Module 1
+
+Module 1 is the **foundation engine** — everything required for later
+modules to plug in cleanly.  It contains:
+
+- ✅ Foundational architecture & scalable folder layout
+- ✅ Application bootstrapper (`core/bootstrap.py`)
+- ✅ YAML configuration system with env-var overrides (`core/config.py`)
+- ✅ Centralised rotating + colour logger (`core/logger.py`)
+- ✅ Service registry (`core/registry.py`)
+- ✅ Abstract interfaces for future modules (`core/interfaces.py`)
+- ✅ Shared utilities (`core/utils.py`)
+- ✅ Obsidian-compatible vault manager (`obsidian/vault.py`)
+- ✅ Markdown + YAML front-matter helpers (`obsidian/markdown.py`)
+- ✅ Custom exception hierarchy (`core/exceptions.py`)
+- ✅ Graceful shutdown via SIGINT/SIGTERM
+- ✅ Pytest suite for the foundation
+
+**Not implemented yet** (intentionally): file watching, AI calls,
+embeddings, vector DBs, graph generation, git parsing, semantic
+analysis.  Those land in Modules 2-N.
+
+---
+
+## Quick start
+
+### Requirements
+
+- Python **3.12+**
+- (Future modules) [Ollama](https://ollama.com) with a Qwen model pulled
+
+### Install
+
+```bash
+git clone <your-fork> ProjectMind
+cd ProjectMind
+
+python3.12 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+pip install -r requirements.txt
+# For development / running tests:
+pip install -r requirements-dev.txt
+```
+
+### First run
+
+```bash
+python main.py
+```
+
+You should see colourised log output indicating that:
+
+1. Configuration loaded from `config/default_config.yaml`
+2. Logger initialised (file + console)
+3. Vault directory and section folders created
+4. Core services registered
+5. Bootstrap complete, clean exit
+
+Log files are written to `logs/projectmind.log` (rotating, 5 MB × 5).
+
+### Customising
+
+Copy the example config and edit:
+
+```bash
+cp config/config.example.yaml config/config.yaml
+```
+
+Or override any value via environment variable using the
+`PROJECTMIND_<SECTION>__<KEY>` convention:
+
+```bash
+export PROJECTMIND_LOGGING__LEVEL=DEBUG
+export PROJECTMIND_AI__OLLAMA_HOST="http://192.168.1.10:11434"
+python main.py
+```
+
+---
+
+## Project layout
+
+```
+ProjectMind/
+├── core/                  # foundation engine — config, logging, registry, bootstrap
+│   ├── bootstrap.py
+│   ├── config.py
+│   ├── exceptions.py
+│   ├── interfaces.py
+│   ├── logger.py
+│   ├── registry.py
+│   └── utils.py
+├── obsidian/              # Obsidian-compatible vault + markdown helpers
+│   ├── markdown.py
+│   └── vault.py
+├── watcher/               # 🔜 Module 3 — file change detection
+├── ai/                    # 🔜 Module 2 — Ollama / Qwen integration
+├── analysis/              # 🔜 Module 4 — code & architecture analysis
+├── memory/                # 🔜 Module 5 — long-term project memory
+├── graph/                 # 🔜 Module 6 — Obsidian graph generation
+├── git/                   # 🔜 git history parsing
+├── intelligence/          # 🔜 cross-module synthesis layer
+├── docs/                  # 🔜 documentation generators
+├── config/
+│   ├── default_config.yaml      # shipped defaults — do not edit
+│   └── config.example.yaml      # template for user overrides
+├── templates/             # markdown templates used when generating notes
+├── vault/                 # Obsidian-compatible knowledge store (gitignored content)
+├── logs/                  # rotating log files (gitignored)
+├── tests/                 # pytest suite
+├── main.py
+├── requirements.txt
+├── requirements-dev.txt
+└── README.md
+```
+
+---
+
+## Architecture
+
+ProjectMind follows clean-architecture principles tuned for a long-lived,
+plugin-ready local system:
+
+```
+             ┌──────────────────────────────────────────┐
+             │              main.py                     │
+             │  (entry point — drives Application)      │
+             └──────────────────────────────────────────┘
+                              │
+                              ▼
+             ┌──────────────────────────────────────────┐
+             │         core.bootstrap                   │
+             │   builds Settings, Logger, Vault,        │
+             │   ServiceRegistry — wires everything     │
+             └──────────────────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────────┐
+        ▼                     ▼                         ▼
+ ┌───────────────┐   ┌────────────────┐       ┌──────────────────┐
+ │ core.config   │   │  core.logger   │       │  obsidian.vault  │
+ │  (Settings)   │   │ (rotating+TTY) │       │  (NoteStore)     │
+ └───────────────┘   └────────────────┘       └──────────────────┘
+                              │
+                              ▼
+             ┌──────────────────────────────────────────┐
+             │       core.registry.ServiceRegistry      │
+             │  ←  future modules look up collaborators │
+             └──────────────────────────────────────────┘
+                              ▲
+     ┌────────────┬───────────┴───────────┬────────────┐
+     │            │                       │            │
+  watcher/      ai/                  analysis/    memory/   …
+  (M3)         (M2)                    (M4)        (M5)
+```
+
+**Key principles**
+
+- **Infrastructure ↔ Domain split** — `core/` and `obsidian/` are
+  infrastructure; future `analysis/`, `intelligence/`, `memory/` are
+  domain.  Domain packages may depend on infrastructure but never the
+  reverse.
+- **No circular imports** — every module touches `core` directly and
+  reaches sibling services via the registry.
+- **Interfaces over implementations** — `core/interfaces.py` defines the
+  contracts; concrete classes are wired only inside `bootstrap.py`.
+- **Plugin-ready** — registering a new service is a one-liner in
+  bootstrap, paving the way for a future plugin auto-loader.
+- **Async-ready** — nothing in the foundation pins us to a sync model;
+  services can later expose `async start/stop` overloads.
+
+---
+
+## Startup flow
+
+1. **`main.py`** calls `core.bootstrap.bootstrap()`.
+2. **`ConfigLoader`** reads `config/default_config.yaml`, deep-merges
+   `config/config.yaml` (if present), then applies any
+   `PROJECTMIND_*` env-vars and validates the result.
+3. **Directories** — `logs/` and `vault/` (with all configured sections)
+   are created if missing.
+4. **`logger.bootstrap()`** wires a rotating file handler and a
+   colourised console handler under the `projectmind` namespace.
+5. **`VaultManager.initialize()`** creates the section folders
+   (`Architecture`, `Features`, `APIs`, …) and an `.obsidian/` marker.
+6. **`ServiceRegistry`** is created and the canonical services are
+   registered: `Settings`, `ServiceRegistry` itself, `VaultManager`,
+   `project_root`, `logs_dir`.
+7. **Signal handlers** for `SIGINT` / `SIGTERM` are bound so Ctrl-C
+   triggers graceful shutdown hooks instead of an ugly traceback.
+8. The fully-built **`Application`** handle is returned to `main`.
+
+Shutdown runs every registered hook in LIFO order, swallowing
+individual failures so one misbehaving module cannot block the rest.
+
+---
+
+## Configuration
+
+Merge order (later overrides earlier):
+
+1. `config/default_config.yaml`  — shipped defaults
+2. `config/config.yaml`           — your overrides (gitignored)
+3. `PROJECTMIND_<SECTION>__<KEY>` — environment variables
+
+Double-underscore separates nesting:
+
+| Env var                              | Maps to                  |
+|--------------------------------------|--------------------------|
+| `PROJECTMIND_LOGGING__LEVEL=DEBUG`   | `logging.level`          |
+| `PROJECTMIND_AI__TIMEOUT=300`        | `ai.timeout`             |
+| `PROJECTMIND_PATHS__VAULT_DIR=/data` | `paths.vault_dir`        |
+
+Values are coerced to `bool`/`int`/`float`/`str` automatically.
+
+---
+
+## Logging
+
+- Single namespace: `projectmind` (children: `projectmind.core.config`, …)
+- Two handlers wired in `bootstrap()`:
+  - **File** → `logs/projectmind.log`, rotating at 5 MB × 5 backups,
+    plain UTF-8 format
+  - **Console** → ANSI-coloured if the terminal supports it, plain
+    otherwise
+- Get a logger anywhere with:
+
+```python
+from core.logger import get_logger
+log = get_logger(__name__)
+log.info("hello")
+```
+
+---
+
+## The vault
+
+The vault is just a directory tree that **doubles as an Obsidian vault**.
+ProjectMind owns *write* access; you (or Obsidian) own *read* access.
+
+```
+vault/
+├── .obsidian/         # auto-created marker so Obsidian recognises the folder
+├── Architecture/      # high-level system design notes
+├── Features/          # per-feature lifecycle
+├── APIs/              # endpoint catalogues
+├── Bugs/              # incident & fix history
+├── Daily/             # day-by-day project logs
+├── Generated/         # AI-generated raw output (Module 2+)
+├── Graphs/            # graph data exported by Module 6
+├── AI-Prompts/        # prompt templates and traces
+└── Memory/            # long-term project memory snapshots
+```
+
+Writing a note from code:
+
+```python
+from core.bootstrap import bootstrap
+from obsidian.vault import VaultManager
+
+app = bootstrap()
+vault: VaultManager = app.registry.get(VaultManager)
+
+vault.write_note(
+    section="Architecture",
+    name="Service Layout",
+    body="# Service layout\n\nThe foundation engine wires …",
+    frontmatter_extras={"tags": ["architecture", "module-1"]},
+)
+```
+
+---
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+The foundation suite covers:
+
+- Config loading, deep-merge, env override, validation
+- Service registry register/get/has/replace semantics
+- Vault initialisation, write/read round-trip, missing sections
+- Markdown front-matter parse + compose round-trip
+
+---
+
+## Roadmap
+
+| Module | Status | Description                                          |
+|--------|--------|------------------------------------------------------|
+| 1      | ✅     | Foundation engine (this repo)                        |
+| 2      | 🔜     | Ollama / Qwen client + AI service abstraction        |
+| 3      | 🔜     | File watcher with debounced event pipeline           |
+| 4      | 🔜     | Code & architecture analysis                          |
+| 5      | 🔜     | Long-term memory engine                               |
+| 6      | 🔜     | Obsidian graph builder                                |
+| 7+     | 🔜     | Git history parsing, intelligence synthesis, plugins |
+
+---
+
+## Future scalability notes
+
+The foundation was deliberately built for the long haul:
+
+- **Plugin loader** — `ServiceRegistry` is the natural drop-in point.
+  A future `core/plugins.py` can scan an `entry_points` group and call
+  `registry.register(...)` for each discovered service.
+- **Async pipelines** — the `Service` base class can grow `async_start`
+  / `async_stop` overloads without breaking existing callers; the
+  registry is already thread-safe.
+- **Multi-project indexing** — `paths.project_root` is settable per
+  bootstrap call, so a future supervisor can spin up one
+  `Application` per indexed project, each with its own vault.
+- **Event bus** — once watchers and analysers exist, an in-process
+  event bus will be added beside the registry.  Because nothing in
+  Module 1 reaches across modules directly, introducing it will be
+  additive, not disruptive.
+- **No DB lock-in** — Module 1 is markdown-only.  When a vector DB is
+  needed (Module 5+) it will hide behind a `MemoryEngine` interface
+  and stay swappable.
+- **Local-first forever** — every external integration goes through an
+  interface in `core/interfaces.py`, so cloud variants can be added
+  without touching the foundation.
+
+---
+
+## License
+
+TBD.

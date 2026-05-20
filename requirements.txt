@@ -1,0 +1,14 @@
+# =============================================================================
+# ProjectMind — runtime dependencies
+# =============================================================================
+# Module 1 deliberately keeps this list tiny.  Future modules will add
+# their own pins here as they come online.
+
+PyYAML>=6.0,<7.0
+
+# -----------------------------------------------------------------------------
+# Development / test extras (install with `pip install -r requirements-dev.txt`
+# once that file is created — for now they live here behind a marker so a
+# bare `pip install -r requirements.txt` only pulls runtime deps).
+# -----------------------------------------------------------------------------
+# pytest>=8.0      ; extra == "dev"
