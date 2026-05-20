@@ -44,6 +44,7 @@ Thumbs.db
 # ProjectMind runtime artefacts
 # =============================================================================
 logs/
+vault/
 vault/.obsidian/workspace*
 vault/.obsidian/cache
 config/config.yaml          # user override — never commit

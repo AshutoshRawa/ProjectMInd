@@ -10,6 +10,7 @@ import pytest
 
 from core.config import VaultFrontmatterSettings
 from core.exceptions import VaultError
+from core.interfaces import NoteStore
 from obsidian.vault import VaultManager
 
 SECTIONS = ["Architecture", "Features", "Daily"]
@@ -78,3 +79,7 @@ def test_list_notes(vault: VaultManager) -> None:
 def test_read_missing_note_raises(vault: VaultManager) -> None:
     with pytest.raises(VaultError, match="Note not found"):
         vault.read_note("Architecture", "never-written")
+
+
+def test_vault_satisfies_note_store_protocol(vault: VaultManager) -> None:
+    assert isinstance(vault, NoteStore)

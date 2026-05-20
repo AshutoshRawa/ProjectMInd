@@ -247,6 +247,12 @@ Double-underscore separates nesting:
 
 Values are coerced to `bool`/`int`/`float`/`str` automatically.
 
+To generate a starter user config from the bundled example:
+
+```bash
+python -c "from core.config import ConfigLoader; ConfigLoader().generate_default_config()"
+```
+
 ---
 
 ## Logging

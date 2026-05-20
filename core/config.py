@@ -27,6 +27,7 @@ from __future__ import annotations
 import copy
 import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -213,6 +214,39 @@ class ConfigLoader:
         self._validate(raw)
         return self._build_settings(raw)
 
+    def generate_default_config(
+        self,
+        destination: Path | None = None,
+        *,
+        overwrite: bool = False,
+    ) -> Path:
+        """
+        Write a starter user configuration file and return its path.
+
+        The generated file is copied from ``config/config.example.yaml``
+        when available because that file is intentionally beginner-facing.
+        If the example file is missing, the bundled default config is used
+        as a safe fallback.
+        """
+        target = destination or self._user_path
+        if target.exists() and not overwrite:
+            raise FileExistsError(
+                f"Config already exists at {target}. "
+                "Pass overwrite=True to replace it."
+            )
+
+        source = _PROJECT_ROOT / "config" / "config.example.yaml"
+        if not source.exists():
+            source = self._default_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        return target
+
+    @classmethod
+    def validate_raw(cls, raw: dict[str, Any]) -> None:
+        """Validate a raw config dictionary without loading files."""
+        cls._validate(copy.deepcopy(raw))
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -273,12 +307,48 @@ class ConfigLoader:
                 f"Choose one of: {', '.join(sorted(valid_levels))}"
             )
 
+        logging_raw = raw.get("logging", {})
+        max_bytes = int(logging_raw.get("max_bytes", 5_242_880))
+        backup_count = int(logging_raw.get("backup_count", 5))
+        if max_bytes <= 0:
+            raise ValueError("logging.max_bytes must be greater than 0")
+        if backup_count < 0:
+            raise ValueError("logging.backup_count cannot be negative")
+
         # Ollama host must look like a URL.
-        host = raw.get("ai", {}).get("ollama_host", "")
+        ai_raw = raw.get("ai", {})
+        host = ai_raw.get("ollama_host", "")
         if host and not re.match(r"https?://", host):
             raise ValueError(
                 f"ai.ollama_host '{host}' must start with http:// or https://"
             )
+        timeout = int(ai_raw.get("timeout", 120))
+        max_tokens = int(ai_raw.get("max_tokens", 4096))
+        temperature = float(ai_raw.get("temperature", 0.2))
+        if timeout <= 0:
+            raise ValueError("ai.timeout must be greater than 0")
+        if max_tokens <= 0:
+            raise ValueError("ai.max_tokens must be greater than 0")
+        if not 0 <= temperature <= 1:
+            raise ValueError("ai.temperature must be between 0 and 1")
+
+        paths_raw = raw.get("paths", {})
+        for key in ("project_root", "logs_dir", "vault_dir", "runtime_config"):
+            value = paths_raw.get(key)
+            if value is not None and not str(value).strip():
+                raise ValueError(f"paths.{key} cannot be empty")
+
+        vault_raw = raw.get("vault", {})
+        sections = vault_raw.get("sections", VaultSettings().sections)
+        if not isinstance(sections, list) or not sections:
+            raise ValueError("vault.sections must be a non-empty list")
+        if any(
+            not isinstance(section, str) or not section.strip()
+            for section in sections
+        ):
+            raise ValueError("vault.sections entries must be non-empty strings")
+        if len(set(sections)) != len(sections):
+            raise ValueError("vault.sections cannot contain duplicates")
 
     @staticmethod
     def _build_settings(raw: dict[str, Any]) -> Settings:
@@ -314,8 +384,8 @@ class ConfigLoader:
             level=log_raw.get("level", "INFO").upper(),
             max_bytes=int(log_raw.get("max_bytes", 5_242_880)),
             backup_count=int(log_raw.get("backup_count", 5)),
-            console_color=bool(log_raw.get("console_color", True)),
-            include_timestamp=bool(log_raw.get("include_timestamp", True)),
+            console_color=_as_bool(log_raw.get("console_color", True)),
+            include_timestamp=_as_bool(log_raw.get("include_timestamp", True)),
             filename=log_raw.get("filename", "projectmind.log"),
         )
 
@@ -345,16 +415,19 @@ class ConfigLoader:
         # --- watcher -----------------------------------------------------
         watch_raw = _get("watcher", {})
         watcher = WatcherSettings(
-            enabled=bool(watch_raw.get("enabled", False)),
+            enabled=_as_bool(watch_raw.get("enabled", False)),
             ignore_patterns=watch_raw.get("ignore_patterns", []),
             debounce_seconds=float(watch_raw.get("debounce_seconds", 2.0)),
-            watch_extensions=watch_raw.get("watch_extensions", WatcherSettings().watch_extensions),
+            watch_extensions=watch_raw.get(
+                "watch_extensions",
+                WatcherSettings().watch_extensions,
+            ),
         )
 
         # --- analysis ----------------------------------------------------
         ana_raw = _get("analysis", {})
         analysis = AnalysisSettings(
-            enabled=bool(ana_raw.get("enabled", False)),
+            enabled=_as_bool(ana_raw.get("enabled", False)),
             batch_size=int(ana_raw.get("batch_size", 20)),
             max_file_size=int(ana_raw.get("max_file_size", 524_288)),
         )
@@ -362,14 +435,14 @@ class ConfigLoader:
         # --- memory ------------------------------------------------------
         mem_raw = _get("memory", {})
         memory = MemorySettings(
-            enabled=bool(mem_raw.get("enabled", False)),
+            enabled=_as_bool(mem_raw.get("enabled", False)),
             retention_days=int(mem_raw.get("retention_days", 90)),
         )
 
         # --- graph -------------------------------------------------------
         graph_raw = _get("graph", {})
         graph = GraphSettings(
-            enabled=bool(graph_raw.get("enabled", False)),
+            enabled=_as_bool(graph_raw.get("enabled", False)),
             format=graph_raw.get("format", "markdown-links"),
         )
 
@@ -441,3 +514,16 @@ def _coerce_value(raw: str) -> Any:
     except ValueError:
         pass
     return raw
+
+
+def _as_bool(value: Any) -> bool:
+    """Coerce booleans from YAML/env-friendly scalar values."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lower = value.strip().lower()
+        if lower in {"true", "1", "yes", "on"}:
+            return True
+        if lower in {"false", "0", "no", "off"}:
+            return False
+    return bool(value)

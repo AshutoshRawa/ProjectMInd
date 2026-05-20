@@ -23,7 +23,8 @@ Design rules
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Protocol, runtime_checkable
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +74,14 @@ class NoteStore(Protocol):
     can satisfy this protocol without inheriting from a base class.
     """
 
-    def write_note(self, section: str, name: str, body: str) -> str: ...
-    def read_note(self, section: str, name: str) -> str: ...
+    def write_note(
+        self,
+        section: str,
+        name: str,
+        body: str,
+        frontmatter_extras: dict[str, Any] | None = None,
+    ) -> Path: ...
+    def read_note(self, section: str, name: str) -> tuple[dict[str, Any], str]: ...
     def note_exists(self, section: str, name: str) -> bool: ...
     def list_notes(self, section: str) -> list[str]: ...
 

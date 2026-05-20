@@ -95,11 +95,15 @@ class _PlainFormatter(logging.Formatter):
         2024-01-15 12:30:45,123 | INFO     | core.config          | Settings loaded successfully
     """
 
-    _FMT = "%(asctime)s | %(levelname)-8s | %(name)-22s | %(message)s"
+    _FMT_WITH_TIME = (
+        "%(asctime)s | %(levelname)-8s | %(name)-22s | %(message)s"
+    )
+    _FMT_NO_TIME = "%(levelname)-8s | %(name)-22s | %(message)s"
     _DATE_FMT = "%Y-%m-%d %H:%M:%S"
 
-    def __init__(self) -> None:
-        super().__init__(fmt=self._FMT, datefmt=self._DATE_FMT)
+    def __init__(self, *, include_timestamp: bool = True) -> None:
+        fmt = self._FMT_WITH_TIME if include_timestamp else self._FMT_NO_TIME
+        super().__init__(fmt=fmt, datefmt=self._DATE_FMT)
 
 
 class _ColourFormatter(logging.Formatter):
@@ -112,10 +116,13 @@ class _ColourFormatter(logging.Formatter):
 
     _DATE_FMT = "%H:%M:%S"
 
+    def __init__(self, *, include_timestamp: bool = True) -> None:
+        super().__init__()
+        self._include_timestamp = include_timestamp
+
     def format(self, record: logging.LogRecord) -> str:  # noqa: A003
         colour = _ANSIColour.LEVEL_COLOURS.get(record.levelno, _ANSIColour.RESET)
         level_str = f"{colour}{record.levelname:<8}{_ANSIColour.RESET}"
-        time_str  = f"{_ANSIColour.GREY}{self.formatTime(record, self._DATE_FMT)}{_ANSIColour.RESET}"
         name_str  = f"{_ANSIColour.CYAN}{record.name:<22}{_ANSIColour.RESET}"
         msg_str   = record.getMessage()
 
@@ -124,7 +131,14 @@ class _ColourFormatter(logging.Formatter):
             exc_text = self.formatException(record.exc_info)
             msg_str = f"{msg_str}\n{exc_text}"
 
-        return f"{time_str} | {level_str} | {name_str} | {msg_str}"
+        if self._include_timestamp:
+            time_str = (
+                f"{_ANSIColour.GREY}"
+                f"{self.formatTime(record, self._DATE_FMT)}"
+                f"{_ANSIColour.RESET}"
+            )
+            return f"{time_str} | {level_str} | {name_str} | {msg_str}"
+        return f"{level_str} | {name_str} | {msg_str}"
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +185,9 @@ def bootstrap(
         backupCount=settings.backup_count,
         encoding="utf-8",
     )
-    file_handler.setFormatter(_PlainFormatter())
+    file_handler.setFormatter(
+        _PlainFormatter(include_timestamp=settings.include_timestamp)
+    )
     file_handler.setLevel(logging.DEBUG)  # Capture everything to file
     root.addHandler(file_handler)
 
@@ -179,7 +195,9 @@ def bootstrap(
     console_handler = logging.StreamHandler(sys.stdout)
     use_colour = settings.console_color and _supports_colour()
     console_handler.setFormatter(
-        _ColourFormatter() if use_colour else _PlainFormatter()
+        _ColourFormatter(include_timestamp=settings.include_timestamp)
+        if use_colour
+        else _PlainFormatter(include_timestamp=settings.include_timestamp)
     )
     console_handler.setLevel(getattr(logging, settings.level, logging.INFO))
     root.addHandler(console_handler)
