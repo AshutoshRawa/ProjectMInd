@@ -20,16 +20,17 @@ time — see [Roadmap](#roadmap).
 ## Table of contents
 
 1. [What's in Module 1](#whats-in-module-1)
-2. [Quick start](#quick-start)
-3. [Project layout](#project-layout)
-4. [Architecture](#architecture)
-5. [Startup flow](#startup-flow)
-6. [Configuration](#configuration)
-7. [Logging](#logging)
-8. [The vault](#the-vault)
-9. [Testing](#testing)
-10. [Roadmap](#roadmap)
-11. [Future scalability notes](#future-scalability-notes)
+2. [Module 2 Documentation](#module-2-documentation)
+3. [Quick start](#quick-start)
+4. [Project layout](#project-layout)
+5. [Architecture](#architecture)
+6. [Startup flow](#startup-flow)
+7. [Configuration](#configuration)
+8. [Logging](#logging)
+9. [The vault](#the-vault)
+10. [Testing](#testing)
+11. [Roadmap](#roadmap)
+12. [Future scalability notes](#future-scalability-notes)
 
 ---
 
@@ -57,6 +58,100 @@ ignore rules, extension filters, and debounced event logging.
 **Not implemented yet** (intentionally): AI calls, embeddings, vector
 DBs, graph generation, git parsing, semantic analysis.  Those land in
 later modules.
+
+---
+
+## Module 2 Documentation
+
+Module 2 is the **Watcher Engine**. It extends the foundation engine with
+recursive filesystem monitoring while deliberately avoiding AI,
+summarisation, markdown generation, graph generation, or code analysis.
+
+The watcher integrates with Module 1 by reusing:
+
+- `core.config.Settings` for watcher configuration
+- `core.logger.get_logger()` for event logging
+- `core.bootstrap.bootstrap()` for service registration
+- `core.interfaces.FileWatcher` as the service contract
+- `core.exceptions.WatcherError` for startup/runtime failures
+
+### What Module 2 does
+
+When enabled, ProjectMind monitors these directories under
+`paths.project_root`:
+
+- `backend/`
+- `frontend/`
+- `src/`
+- `app/`
+
+It detects:
+
+- file creation
+- file modification
+- file deletion
+- file moves/renames
+
+It tracks only these file extensions:
+
+- `.py`
+- `.js`
+- `.ts`
+- `.tsx`
+- `.jsx`
+- `.md`
+- `.json`
+
+It ignores noisy/generated folders:
+
+- `node_modules`
+- `.git`
+- `__pycache__`
+- `pycache`
+- `dist`
+- `build`
+- `venv`
+- `.venv`
+- `.next`
+- `coverage`
+
+### Watcher package layout
+
+```
+watcher/
+├── __init__.py           # lightweight public event exports
+├── events.py             # normalized FileChangeEvent model
+├── file_tracker.py       # debounce + duplicate event collapse
+├── filters.py            # extension and ignored-path filtering
+├── watcher.py            # watchdog event handler
+└── watcher_manager.py    # FileWatcher service implementation
+```
+
+### Runtime flow
+
+1. `ConfigLoader` loads the `watcher` section from YAML/env vars.
+2. `bootstrap()` registers `WatcherManager` when `watcher.enabled=true`.
+3. `main.py` starts the watcher and keeps the process alive.
+4. Watchdog emits raw filesystem events.
+5. `ProjectMindEventHandler` filters unsupported paths and extensions.
+6. `FileTracker` debounces bursts and minimizes duplicate events.
+7. Stable `FileChangeEvent` records are logged at `INFO`.
+8. On shutdown, pending events are flushed and the observer stops cleanly.
+
+### Example log output
+
+```text
+[watcher] modified: /path/to/project/src/app.py
+[watcher] created: /path/to/project/backend/routes.py
+[watcher] deleted: /path/to/project/frontend/old-widget.tsx
+```
+
+### Module 2 boundaries
+
+Module 2 only builds watcher infrastructure. It does not call AI models,
+generate documentation, write markdown notes, create embeddings, parse git,
+or perform semantic code analysis. Those responsibilities belong to later
+modules that will consume watcher events.
 
 ---
 
