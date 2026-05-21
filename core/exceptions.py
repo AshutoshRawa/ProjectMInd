@@ -30,3 +30,7 @@ class VaultError(ProjectMindError):
 
 class BootstrapError(ProjectMindError):
     """Raised when application startup cannot complete."""
+
+
+class WatcherError(ProjectMindError):
+    """Raised when the filesystem watcher cannot start or operate."""

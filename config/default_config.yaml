@@ -71,7 +71,7 @@ vault:
     status: "draft"
 
 # ---------------------------------------------------------------------------
-# AI / Ollama integration (placeholder — activated in Module 2)
+# AI / Ollama integration (placeholder — activated in Module 3)
 # ---------------------------------------------------------------------------
 ai:
   # Ollama server endpoint
@@ -88,28 +88,45 @@ ai:
   temperature: 0.2
 
 # ---------------------------------------------------------------------------
-# Watcher (placeholder — activated in Module 3)
+# Watcher — Module 2: filesystem monitoring
 # ---------------------------------------------------------------------------
 watcher:
+  # Set true to run the watcher loop from main.py
   enabled: false
-  # Glob patterns to ignore when watching for file changes
+  # Directories under paths.project_root to monitor (skipped if missing)
+  watch_dirs:
+    - "backend"
+    - "frontend"
+    - "src"
+    - "app"
+  # Directory *names* ignored anywhere in the watch tree
+  ignore_dirs: []
+  # Additional glob patterns (fnmatch on POSIX paths)
   ignore_patterns:
     - "**/__pycache__/**"
+    - "**/pycache/**"
     - "**/.git/**"
     - "**/node_modules/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/venv/**"
+    - "**/.venv/**"
+    - "**/.next/**"
+    - "**/coverage/**"
     - "**/*.pyc"
     - "**/logs/**"
     - "**/vault/**"
-  # Debounce delay before processing a burst of file events (seconds)
+  # Quiet period after the last raw event before logging (seconds)
   debounce_seconds: 2.0
-  # File extensions that trigger analysis
+  # File extensions that produce events
   watch_extensions:
     - ".py"
-    - ".ts"
     - ".js"
-    - ".go"
-    - ".rs"
+    - ".ts"
+    - ".tsx"
+    - ".jsx"
     - ".md"
+    - ".json"
 
 # ---------------------------------------------------------------------------
 # Analysis engine (placeholder — activated in Module 4)

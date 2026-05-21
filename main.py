@@ -7,15 +7,10 @@ Run with::
 
     python main.py
 
-In Module 1 there are no long-running services yet, so ``main`` simply:
-
-1. Bootstraps the application (config + logging + vault + registry).
-2. Prints a status report.
-3. Exits cleanly.
-
-Future modules (watcher, AI, analysis…) will hook into the
-:class:`~core.bootstrap.Application` returned here and turn ``main``
-into a long-running process.
+Module 1 bootstraps config, logging, vault, and the service registry.
+Module 2 adds an optional long-running filesystem watcher — enable it in
+``config/config.yaml`` (``watcher.enabled: true``) or via
+``PROJECTMIND_WATCHER__ENABLED=true``.
 """
 
 from __future__ import annotations
@@ -24,11 +19,12 @@ import sys
 
 from core.bootstrap import bootstrap
 from core.exceptions import ProjectMindError
+from core.interfaces import FileWatcher
 from core.logger import get_logger
 
 
 def main() -> int:
-    """Run the ProjectMind foundation engine.  Returns a process exit code."""
+    """Run ProjectMind.  Returns a process exit code."""
     try:
         app = bootstrap()
     except ProjectMindError as exc:
@@ -41,18 +37,40 @@ def main() -> int:
 
     try:
         log.info("=" * 60)
-        log.info(" %s v%s — foundation engine ready",
-                 settings.app.name, settings.app.version)
+        log.info(
+            " %s v%s — foundation engine ready",
+            settings.app.name,
+            settings.app.version,
+        )
         log.info("=" * 60)
         log.info(" Project root : %s", app.project_root)
-        log.info(" Vault dir    : %s", app.project_root / settings.paths.vault_dir)
-        log.info(" Logs dir     : %s", app.project_root / settings.paths.logs_dir)
+        log.info(
+            " Vault dir    : %s",
+            app.project_root / settings.paths.vault_dir,
+        )
+        log.info(
+            " Logs dir     : %s",
+            app.project_root / settings.paths.logs_dir,
+        )
         log.info(" Services     : %d registered", len(app.registry))
         log.info("=" * 60)
-        log.info("Module 1 has no runtime loop yet — exiting cleanly.")
+
+        if settings.watcher.enabled:
+            watcher = app.registry.get(FileWatcher)
+            watcher.start()
+            log.info(
+                "Watcher engine active — monitoring %s",
+                ", ".join(settings.watcher.watch_dirs),
+            )
+            log.info("Press Ctrl+C to stop.")
+            watcher.wait_until_stopped()
+        else:
+            log.info(
+                "Watcher disabled — set watcher.enabled=true to monitor "
+                "backend/, frontend/, src/, app/."
+            )
         return 0
     finally:
-        # Always run shutdown hooks, even if the body above raises.
         app.shutdown()
 
 

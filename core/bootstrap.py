@@ -29,6 +29,7 @@ from typing import Callable
 from core import logger as logger_module
 from core.config import ConfigLoader, Settings
 from core.exceptions import BootstrapError, ProjectMindError
+from core.interfaces import FileWatcher
 from core.logger import get_logger
 from core.registry import ServiceRegistry
 from core.utils import ensure_dir
@@ -139,6 +140,16 @@ def bootstrap(
         registry.register("project_root", project_root)
         registry.register("logs_dir", logs_dir)
 
+        # 5b. Watcher (Module 2) — register when enabled, start from main ----
+        if settings.watcher.enabled:
+            from watcher.watcher_manager import WatcherManager
+
+            watcher = WatcherManager(
+                project_root=project_root,
+                settings=settings.watcher,
+            )
+            registry.register(FileWatcher, watcher)
+
         # 6. Build the Application handle -------------------------------------
         app = Application(
             settings=settings,
@@ -147,7 +158,12 @@ def bootstrap(
             _shutdown_hooks=[],
         )
 
-        # 7. Signal handlers (optional) ---------------------------------------
+        # 7. Watcher shutdown hook (stop observer + flush debounced events) ---
+        if settings.watcher.enabled:
+            watcher_svc = registry.get(FileWatcher)
+            app.on_shutdown(watcher_svc.stop)
+
+        # 8. Signal handlers (optional) ---------------------------------------
         if install_signal_handlers:
             _install_signal_handlers(app)
 

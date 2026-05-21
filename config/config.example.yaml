@@ -24,6 +24,11 @@ paths:
   # Where the Obsidian-compatible vault lives.
   vault_dir: "vault"
 
+watcher:
+  # Enable filesystem monitoring (backend/, frontend/, src/, app/)
+  enabled: false
+  debounce_seconds: 2.0
+
 ai:
   # Override the model if you have a smaller / larger one pulled in Ollama.
   default_model: "qwen2.5-coder:7b"

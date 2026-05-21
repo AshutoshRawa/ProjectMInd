@@ -5,6 +5,7 @@
 # their own pins here as they come online.
 
 PyYAML>=6.0,<7.0
+watchdog>=4.0,<7.0
 
 # -----------------------------------------------------------------------------
 # Development / test extras (install with `pip install -r requirements-dev.txt`

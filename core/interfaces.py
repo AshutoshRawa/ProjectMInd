@@ -93,13 +93,13 @@ class NoteStore(Protocol):
 # against them today even though no implementation ships in Module 1.
 
 class FileWatcher(Service):
-    """Will be implemented by ``watcher/`` in Module 3."""
+    """Implemented by :class:`watcher.watcher_manager.WatcherManager`."""
 
     name = "watcher"
 
 
 class AIClient(Service):
-    """Will be implemented by ``ai/`` in Module 2."""
+    """Will be implemented by ``ai/`` in Module 3."""
 
     name = "ai"
 

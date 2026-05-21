@@ -103,7 +103,7 @@ class VaultSettings:
 
 @dataclass
 class AISettings:
-    """Ollama / model settings (placeholder for Module 2)."""
+    """Ollama / model settings (placeholder for Module 3)."""
     ollama_host: str = "http://localhost:11434"
     default_model: str = "qwen2.5-coder:7b"
     fallback_model: str = "qwen2.5:7b"
@@ -114,12 +114,16 @@ class AISettings:
 
 @dataclass
 class WatcherSettings:
-    """File-watcher settings (placeholder for Module 3)."""
+    """File-watcher settings (Module 2 — Watcher Engine)."""
     enabled: bool = False
+    watch_dirs: list[str] = field(default_factory=lambda: [
+        "backend", "frontend", "src", "app",
+    ])
+    ignore_dirs: list[str] = field(default_factory=list)
     ignore_patterns: list[str] = field(default_factory=list)
     debounce_seconds: float = 2.0
     watch_extensions: list[str] = field(default_factory=lambda: [
-        ".py", ".ts", ".js", ".go", ".rs", ".md"
+        ".py", ".js", ".ts", ".tsx", ".jsx", ".md", ".json",
     ])
 
 
@@ -350,6 +354,11 @@ class ConfigLoader:
         if len(set(sections)) != len(sections):
             raise ValueError("vault.sections cannot contain duplicates")
 
+        watcher_raw = raw.get("watcher", {})
+        debounce = float(watcher_raw.get("debounce_seconds", 2.0))
+        if debounce <= 0:
+            raise ValueError("watcher.debounce_seconds must be greater than 0")
+
     @staticmethod
     def _build_settings(raw: dict[str, Any]) -> Settings:
         """
@@ -416,6 +425,8 @@ class ConfigLoader:
         watch_raw = _get("watcher", {})
         watcher = WatcherSettings(
             enabled=_as_bool(watch_raw.get("enabled", False)),
+            watch_dirs=watch_raw.get("watch_dirs", WatcherSettings().watch_dirs),
+            ignore_dirs=watch_raw.get("ignore_dirs", []),
             ignore_patterns=watch_raw.get("ignore_patterns", []),
             debounce_seconds=float(watch_raw.get("debounce_seconds", 2.0)),
             watch_extensions=watch_raw.get(

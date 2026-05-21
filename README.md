@@ -10,9 +10,9 @@ long-term **project intelligence**: architecture maps, feature histories,
 bug timelines, API catalogues, and an Obsidian-compatible knowledge graph
 you actually own.
 
-This repository currently ships **Module 1: Foundation Engine**.  Higher
-modules (file watcher, AI summaries, code analysis, memory engine, graph
-builder, etc.) are stubbed out as interfaces and will be filled in over
+This repository ships **Module 1: Foundation Engine** and **Module 2:
+Watcher Engine**.  Higher modules (AI summaries, code analysis, memory
+engine, graph builder, etc.) are stubbed as interfaces and filled in over
 time — see [Roadmap](#roadmap).
 
 ---
@@ -51,9 +51,12 @@ modules to plug in cleanly.  It contains:
 - ✅ Graceful shutdown via SIGINT/SIGTERM
 - ✅ Pytest suite for the foundation
 
-**Not implemented yet** (intentionally): file watching, AI calls,
-embeddings, vector DBs, graph generation, git parsing, semantic
-analysis.  Those land in Modules 2-N.
+**Module 2 (Watcher Engine)** adds recursive filesystem monitoring with
+ignore rules, extension filters, and debounced event logging.
+
+**Not implemented yet** (intentionally): AI calls, embeddings, vector
+DBs, graph generation, git parsing, semantic analysis.  Those land in
+later modules.
 
 ---
 
@@ -94,6 +97,27 @@ You should see colourised log output indicating that:
 
 Log files are written to `logs/projectmind.log` (rotating, 5 MB × 5).
 
+### Module 2 — enable the watcher
+
+1. Ensure the directories you want monitored exist under your
+   `paths.project_root` (e.g. `backend/`, `frontend/`, `src/`, `app/`).
+2. Enable the watcher in config or via environment variable:
+
+```yaml
+# config/config.yaml
+watcher:
+  enabled: true
+```
+
+```bash
+export PROJECTMIND_WATCHER__ENABLED=true
+python main.py
+```
+
+ProjectMind will stay running, log debounced file events at `INFO`, and
+exit cleanly on Ctrl+C.  Ignored paths include `node_modules`, `.git`,
+`__pycache__`, `dist`, `build`, `venv`, `.next`, and `coverage`.
+
 ### Customising
 
 Copy the example config and edit:
@@ -128,8 +152,8 @@ ProjectMind/
 ├── obsidian/              # Obsidian-compatible vault + markdown helpers
 │   ├── markdown.py
 │   └── vault.py
-├── watcher/               # 🔜 Module 3 — file change detection
-├── ai/                    # 🔜 Module 2 — Ollama / Qwen integration
+├── watcher/               # Module 2 — file change detection
+├── ai/                    # 🔜 Module 3 — Ollama / Qwen integration
 ├── analysis/              # 🔜 Module 4 — code & architecture analysis
 ├── memory/                # 🔜 Module 5 — long-term project memory
 ├── graph/                 # 🔜 Module 6 — Obsidian graph generation
@@ -185,7 +209,7 @@ plugin-ready local system:
      ┌────────────┬───────────┴───────────┬────────────┐
      │            │                       │            │
   watcher/      ai/                  analysis/    memory/   …
-  (M3)         (M2)                    (M4)        (M5)
+  (M2)         (M3)                    (M4)        (M5)
 ```
 
 **Key principles**
@@ -286,7 +310,7 @@ vault/
 ├── APIs/              # endpoint catalogues
 ├── Bugs/              # incident & fix history
 ├── Daily/             # day-by-day project logs
-├── Generated/         # AI-generated raw output (Module 2+)
+├── Generated/         # AI-generated raw output (Module 3+)
 ├── Graphs/            # graph data exported by Module 6
 ├── AI-Prompts/        # prompt templates and traces
 └── Memory/            # long-term project memory snapshots
@@ -318,12 +342,13 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
-The foundation suite covers:
+The test suite covers:
 
 - Config loading, deep-merge, env override, validation
 - Service registry register/get/has/replace semantics
 - Vault initialisation, write/read round-trip, missing sections
 - Markdown front-matter parse + compose round-trip
+- Watcher filters, debounce tracker, and live observer smoke test
 
 ---
 
@@ -332,8 +357,8 @@ The foundation suite covers:
 | Module | Status | Description                                          |
 |--------|--------|------------------------------------------------------|
 | 1      | ✅     | Foundation engine (this repo)                        |
-| 2      | 🔜     | Ollama / Qwen client + AI service abstraction        |
-| 3      | 🔜     | File watcher with debounced event pipeline           |
+| 2      | ✅     | File watcher with debounced event pipeline           |
+| 3      | 🔜     | Ollama / Qwen client + AI service abstraction        |
 | 4      | 🔜     | Code & architecture analysis                          |
 | 5      | 🔜     | Long-term memory engine                               |
 | 6      | 🔜     | Obsidian graph builder                                |
