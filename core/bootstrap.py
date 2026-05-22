@@ -29,7 +29,7 @@ from typing import Callable
 from core import logger as logger_module
 from core.config import ConfigLoader, Settings
 from core.exceptions import BootstrapError, ProjectMindError
-from core.interfaces import FileWatcher
+from core.interfaces import AIClient, FileWatcher
 from core.logger import get_logger
 from core.registry import ServiceRegistry
 from core.utils import ensure_dir
@@ -140,13 +140,25 @@ def bootstrap(
         registry.register("project_root", project_root)
         registry.register("logs_dir", logs_dir)
 
-        # 5b. Watcher (Module 2) — register when enabled, start from main ----
+        # 5b. AI (Module 3) — always registered; started from main ------------
+        from ai.ai_manager import AIManager
+
+        ai_manager = AIManager(settings=settings.ai)
+        registry.register(AIClient, ai_manager)
+
+        # 5c. Watcher (Module 2) — register when enabled, start from main ----
         if settings.watcher.enabled:
             from watcher.watcher_manager import WatcherManager
+
+            def _on_watcher_event(event: object) -> None:
+                # Keep Module 2 logging; Module 3 receives events for future analysis.
+                WatcherManager._default_on_event(event)  # type: ignore[arg-type]
+                ai_manager.on_file_change(event)
 
             watcher = WatcherManager(
                 project_root=project_root,
                 settings=settings.watcher,
+                on_event=_on_watcher_event,
             )
             registry.register(FileWatcher, watcher)
 
@@ -158,7 +170,9 @@ def bootstrap(
             _shutdown_hooks=[],
         )
 
-        # 7. Watcher shutdown hook (stop observer + flush debounced events) ---
+        # 7. Service shutdown hooks -------------------------------------------
+        app.on_shutdown(ai_manager.stop)
+
         if settings.watcher.enabled:
             watcher_svc = registry.get(FileWatcher)
             app.on_shutdown(watcher_svc.stop)

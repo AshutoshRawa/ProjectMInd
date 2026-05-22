@@ -34,3 +34,7 @@ class BootstrapError(ProjectMindError):
 
 class WatcherError(ProjectMindError):
     """Raised when the filesystem watcher cannot start or operate."""
+
+
+class AIError(ProjectMindError):
+    """Raised when the AI communication layer cannot reach or use Ollama."""

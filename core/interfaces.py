@@ -99,7 +99,7 @@ class FileWatcher(Service):
 
 
 class AIClient(Service):
-    """Will be implemented by ``ai/`` in Module 3."""
+    """Implemented by :class:`ai.ai_manager.AIManager`."""
 
     name = "ai"
 

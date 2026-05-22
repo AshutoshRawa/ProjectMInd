@@ -8,9 +8,9 @@ Run with::
     python main.py
 
 Module 1 bootstraps config, logging, vault, and the service registry.
-Module 2 adds an optional long-running filesystem watcher — enable it in
-``config/config.yaml`` (``watcher.enabled: true``) or via
-``PROJECTMIND_WATCHER__ENABLED=true``.
+Module 2 adds an optional filesystem watcher (``watcher.enabled: true``).
+Module 3 connects to Ollama/Qwen at ``ai.ollama_host`` (requires a running
+Ollama server and a pulled Qwen model).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import sys
 
 from core.bootstrap import bootstrap
 from core.exceptions import ProjectMindError
-from core.interfaces import FileWatcher
+from core.interfaces import AIClient, FileWatcher
 from core.logger import get_logger
 
 
@@ -54,6 +54,17 @@ def main() -> int:
         )
         log.info(" Services     : %d registered", len(app.registry))
         log.info("=" * 60)
+
+        ai = app.registry.get(AIClient)
+        try:
+            ai.start()
+            log.info(" AI engine    : %s @ %s", ai.active_model, settings.ai.ollama_host)
+        except Exception:
+            log.exception(
+                "AI engine could not start — is Ollama running at %s?",
+                settings.ai.ollama_host,
+            )
+            return 1
 
         if settings.watcher.enabled:
             watcher = app.registry.get(FileWatcher)

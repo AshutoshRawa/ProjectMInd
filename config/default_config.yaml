@@ -71,21 +71,25 @@ vault:
     status: "draft"
 
 # ---------------------------------------------------------------------------
-# AI / Ollama integration (placeholder — activated in Module 3)
+# AI / Ollama integration — Module 3: AI Communication Engine
 # ---------------------------------------------------------------------------
 ai:
   # Ollama server endpoint
   ollama_host: "http://localhost:11434"
-  # Default model for documentation generation
+  # Default Qwen model (must be pulled: ollama pull qwen2.5-coder:7b)
   default_model: "qwen2.5-coder:7b"
   # Fallback model when the default is unavailable
   fallback_model: "qwen2.5:7b"
   # Request timeout in seconds
   timeout: 120
-  # Maximum tokens per response
+  # Maximum tokens per response (maps to Ollama num_predict)
   max_tokens: 4096
   # Temperature (0 = deterministic, 1 = creative)
   temperature: 0.2
+  # Retries for transient network / server errors
+  max_retries: 3
+  # Base delay between retries (seconds); doubles each attempt
+  retry_backoff_seconds: 1.0
 
 # ---------------------------------------------------------------------------
 # Watcher — Module 2: filesystem monitoring

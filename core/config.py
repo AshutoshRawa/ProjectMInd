@@ -103,13 +103,15 @@ class VaultSettings:
 
 @dataclass
 class AISettings:
-    """Ollama / model settings (placeholder for Module 3)."""
+    """Ollama / Qwen settings (Module 3 — AI Communication Engine)."""
     ollama_host: str = "http://localhost:11434"
     default_model: str = "qwen2.5-coder:7b"
     fallback_model: str = "qwen2.5:7b"
     timeout: int = 120
     max_tokens: int = 4096
     temperature: float = 0.2
+    max_retries: int = 3
+    retry_backoff_seconds: float = 1.0
 
 
 @dataclass
@@ -335,6 +337,12 @@ class ConfigLoader:
             raise ValueError("ai.max_tokens must be greater than 0")
         if not 0 <= temperature <= 1:
             raise ValueError("ai.temperature must be between 0 and 1")
+        max_retries = int(ai_raw.get("max_retries", 3))
+        retry_backoff = float(ai_raw.get("retry_backoff_seconds", 1.0))
+        if max_retries < 0:
+            raise ValueError("ai.max_retries cannot be negative")
+        if retry_backoff < 0:
+            raise ValueError("ai.retry_backoff_seconds cannot be negative")
 
         paths_raw = raw.get("paths", {})
         for key in ("project_root", "logs_dir", "vault_dir", "runtime_config"):
@@ -419,6 +427,8 @@ class ConfigLoader:
             timeout=int(ai_raw.get("timeout", 120)),
             max_tokens=int(ai_raw.get("max_tokens", 4096)),
             temperature=float(ai_raw.get("temperature", 0.2)),
+            max_retries=int(ai_raw.get("max_retries", 3)),
+            retry_backoff_seconds=float(ai_raw.get("retry_backoff_seconds", 1.0)),
         )
 
         # --- watcher -----------------------------------------------------
