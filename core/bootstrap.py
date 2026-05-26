@@ -141,7 +141,7 @@ def bootstrap(
         registry.register("logs_dir", logs_dir)
 
         # 5b. AI (Module 3) — always registered; started from main ------------
-        from ai.ai_manager import AIManager
+        from ai import AIManager
 
         ai_manager = AIManager(settings=settings.ai)
         registry.register(AIClient, ai_manager)

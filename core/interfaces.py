@@ -104,8 +104,16 @@ class AIClient(Service):
     name = "ai"
 
     @abstractmethod
-    def generate(self, prompt: str) -> str:
-        """Run *prompt* through the configured model and return the response."""
+    def complete(self, prompt_name: str, variables: dict[str, Any], stream: bool = False) -> str:
+        """Render a registered prompt template and run it through the model."""
+
+    @abstractmethod
+    def complete_raw(self, prompt_text: str) -> str:
+        """Send raw prompt text to the model without template lookup."""
+
+    @abstractmethod
+    def is_available(self) -> bool:
+        """Return True if the Ollama server is reachable."""
 
 
 class Analyzer(Service):

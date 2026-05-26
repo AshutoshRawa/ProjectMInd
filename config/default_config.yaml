@@ -76,10 +76,10 @@ vault:
 ai:
   # Ollama server endpoint
   ollama_host: "http://localhost:11434"
-  # Default Qwen model (must be pulled: ollama pull qwen2.5-coder:7b)
-  default_model: "qwen2.5-coder:7b"
+  # Default Qwen model (must be pulled: ollama pull qwen2.5-coder:14b)
+  default_model: "qwen2.5-coder:14b"
   # Fallback model when the default is unavailable
-  fallback_model: "qwen2.5:7b"
+  fallback_model: "qwen2.5-coder:14b"
   # Request timeout in seconds
   timeout: 120
   # Maximum tokens per response (maps to Ollama num_predict)

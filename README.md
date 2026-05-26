@@ -154,30 +154,29 @@ modules that will consume watcher events.
 
 ## Module 3 Documentation
 
-Module 3 is the **AI Communication Engine**. It establishes a low-level, high-reliability HTTP transport layer and service orchestration structure to communicate with a local [Ollama](https://ollama.com) instance running a Qwen model, providing a resilient prompt and response lifecycle for subsequent semantic analyzers and knowledge graph components.
+Module 3 is the **AI Communication Engine**. It provides the single ProjectMind interface for communicating with a local [Ollama](https://ollama.com) instance running a Qwen model, using the official `ollama` Python package and registered prompt templates for all model calls.
 
 The AI engine integrates seamlessly with Module 1 & Module 2 by reusing:
-- `core.config.Settings` (loading configuration under the `ai` section)
-- `core.logger.get_logger()` for all debug, trace, warning, and error activity
+- `core.Settings` / `core.AISettings` (loading configuration under the `ai` section)
+- `core.get_logger()` for all debug, trace, warning, and error activity
 - `core.bootstrap.bootstrap()` for global bootstrap service registration as `AIClient`
 - `watcher.watcher_manager.WatcherManager` event hooks (subscribing `AIManager.on_file_change` to events for future downstream analysis triggers)
 
 ### What Module 3 does
-- **Connection Diagnostics**: Performs connection handshakes on start (`GET /api/tags`) and verifies end-to-end inference via a lightweight prompt (`Reply with exactly: OK`).
-- **Smart Model Fallback**: Automatically senses loaded models, and falls back to a preconfigured `fallback_model` (e.g. `qwen2.5:7b`) if the requested `default_model` returns an HTTP 404 (model not found) exception.
-- **Robust Exponential Retries**: Retries transient transport, timeout, or server errors (HTTP 429, 5xx) up to a configurable threshold, doubling sleep delays after each attempt. Permanent issues (HTTP 4xx except 429) fail fast.
-- **Instruction Framing & Templates**: Assembles high-level instructions (system constraints, role descriptions) and user task descriptions using unified Markdown blocks (`### System`, `### User`, `### Assistant`) tailored for Qwen models.
-- **Strict Response Parsing**: Decodes raw Ollama JSON payloads, handles partial streaming states or service errors, and extracts raw generated text safely.
+- **Connection Diagnostics**: Performs an Ollama model-list availability check on start.
+- **Smart Model Fallback**: Falls back to the configured `fallback_model` when Ollama reports the default model is missing.
+- **Registered Prompt Templates**: Routes all templated calls through `AIManager.complete(prompt_name, variables)` and the internal prompt registry.
+- **Async Support**: Provides async completion methods backed by `ollama.AsyncClient`.
+- **Strict Response Parsing**: Parses JSON from fenced or prose-wrapped model responses and validates simple structured schemas.
+- **Call Logging**: Logs every AI call with prompt name, model, latency, and token count.
 
 ### AI Engine package layout
 ```text
 ai/
-├── __init__.py           # lightweight exports (AIManager, PromptBuilder, PromptBundle)
-├── ai_manager.py         # main AIManager coordinating client, retry, prompts, and lifecycle
-├── ollama_client.py      # HTTP request and session management for the Ollama REST API
-├── prompts.py            # instruction frame structures and ProjectMind system prompts
-├── request_manager.py    # transient fault detection, retry loops, and exponential backoff
-└── response_parser.py    # JSON response content extraction and status code handling
+├── __init__.py           # public exports (AIManager, get_ai, init_ai)
+├── ai_manager.py         # public AI interface and Ollama coordination
+├── prompt_registry.py    # internal registered prompt templates
+└── response_parser.py    # internal JSON parsing and schema validation
 ```
 
 ### Config properties
@@ -196,19 +195,18 @@ ai:
   max_tokens: 4096
   # Generative temperature (0.0 = deterministic, 1.0 = creative)
   temperature: 0.2
-  # Max retry count for transient networking errors
+  # Reserved for future retry policy
   max_retries: 3
-  # Sleep time base factor in seconds (doubled after each failed retry attempt)
+  # Reserved for future retry policy
   retry_backoff_seconds: 1.0
 ```
 
 ### Runtime Flow & Lifecycle
 1. `bootstrap()` parses settings, initializes `AIManager`, and registers it as `AIClient`.
 2. `main.py` invokes `ai.start()`.
-3. `AIManager` verifies server connectivity using the `/api/tags` tags list and executes a tiny validation check using a minimal prompt `PromptBuilder.ping()` to assert that the model is loaded and fully functional.
-4. If a connection issue or timeout occurs, `RequestManager` captures the event, sleeps for the designated delay, and retries the request.
-5. In subsequent execution flows, downstream modules can call `ai.generate(prompt)` to retrieve structured answers deterministically.
-6. When the system shuts down, `Application.shutdown` invokes `AIManager.stop()`, which closes the requests HTTP session cleanly.
+3. `AIManager` verifies Ollama connectivity through the official package's model-list call.
+4. Downstream modules call `get_ai().complete("prompt_name", variables)` for templated prompts or `complete_raw()` for health checks and diagnostics.
+5. When the system shuts down, `Application.shutdown` invokes `AIManager.stop()`.
 
 ---
 

@@ -4,7 +4,10 @@ Smoke tests for :mod:`core.bootstrap`.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -26,6 +29,17 @@ def isolated_config(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return cfg
+
+
+@pytest.fixture(autouse=True)
+def fake_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bootstrap registers AI without requiring a real Ollama install."""
+    module = SimpleNamespace(
+        ResponseError=RuntimeError,
+        Client=MagicMock(return_value=MagicMock()),
+        AsyncClient=MagicMock(return_value=MagicMock()),
+    )
+    monkeypatch.setitem(sys.modules, "ollama", module)
 
 
 def test_bootstrap_builds_application(isolated_config: Path, tmp_path: Path) -> None:

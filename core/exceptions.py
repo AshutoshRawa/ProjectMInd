@@ -38,3 +38,11 @@ class WatcherError(ProjectMindError):
 
 class AIError(ProjectMindError):
     """Raised when the AI communication layer cannot reach or use Ollama."""
+
+
+class PromptNotFoundError(AIError):
+    """Raised when a prompt template is not found in the registry."""
+
+
+class ResponseParseError(AIError):
+    """Raised when an AI response cannot be parsed (JSON extraction or schema validation)."""

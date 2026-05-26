@@ -1,195 +1,424 @@
 """
-ai/ai_manager.py
-================
-High-level AI Communication Engine for ProjectMind.
+AI Communication Engine for ProjectMind.
 
-:class:`AIManager` is the concrete implementation of
-:class:`~core.interfaces.AIClient`.  It wires together:
-
-- :class:`~ai.ollama_client.OllamaClient` — HTTP transport
-- :class:`~ai.request_manager.RequestManager` — retries and backoff
-- :class:`~ai.response_parser.ResponseParser` — JSON → text
-- :class:`~ai.prompts.PromptBuilder` — prompt assembly
-
-Watcher integration (Module 2) is limited to receiving
-:class:`~watcher.events.FileChangeEvent` notifications at DEBUG level.
-Analysis and documentation are intentionally **not** implemented here.
+This is the only public interface for AI access.  Callers use
+``get_ai().complete("prompt_name", variables)`` and never import Ollama or
+prompt internals directly.
 """
 
 from __future__ import annotations
 
-from core.config import AISettings
-from core.exceptions import AIError
-from core.interfaces import AIClient
-from core.logger import get_logger
-from ai.ollama_client import OllamaClient
-from ai.prompts import PromptBuilder
-from ai.request_manager import RequestManager
-from ai.response_parser import ResponseParser
+import asyncio
+import importlib
+import time
+from collections.abc import Iterable
+from typing import Any
+
+from core import AIClient, AIError, AISettings, get_logger
+
+from ai.prompt_registry import PromptRegistry, _register_defaults
 
 log = get_logger(__name__)
 
+_instance: AIManager | None = None
+
+
+def get_ai() -> AIManager:
+    """Return the process-wide AI manager singleton."""
+    if _instance is None:
+        raise RuntimeError("AI engine is not initialised; call init_ai() first")
+    return _instance
+
+
+def init_ai(settings: AISettings | None = None) -> AIManager:
+    """Initialise and return the process-wide AI manager singleton."""
+    global _instance
+    _instance = AIManager(settings=settings)
+    return _instance
+
 
 class AIManager(AIClient):
-    """
-    Ollama-backed AI service for ProjectMind.
-
-    Parameters
-    ----------
-    settings:
-        AI section from :class:`~core.config.Settings`.
-    """
+    """Ollama-backed AI client used by all ProjectMind modules."""
 
     name = "ai"
 
-    def __init__(self, settings: AISettings) -> None:
-        self._settings = settings
-        self._client = OllamaClient(settings)
-        self._requests = RequestManager(settings)
-        self._parser = ResponseParser()
-        self._prompts = PromptBuilder()
+    def __init__(
+        self,
+        settings: AISettings | None = None,
+        *,
+        client: Any | None = None,
+        async_client: Any | None = None,
+    ) -> None:
+        self._settings = settings or AISettings()
+        self._host = self._settings.ollama_host
+        self._model = self._settings.default_model
+        self._fallback_model = self._settings.fallback_model
+        self.active_model = self._model
         self._started = False
-        self._model_in_use: str = settings.default_model
 
-    # ------------------------------------------------------------------
-    # AIClient / Service lifecycle
-    # ------------------------------------------------------------------
+        self._ollama = None if client and async_client else _load_ollama()
+        self._client = client or self._make_client("Client")
+        self._async_client = async_client or self._make_client("AsyncClient")
+
+        self._registry = PromptRegistry()
+        _register_defaults(self._registry)
 
     def start(self) -> None:
-        """
-        Verify Ollama is reachable and the configured model is available.
-
-        Does not pull models — the operator must run ``ollama pull`` first.
-        """
-        if self._started:
-            return
-
-        log.info(
-            "Starting AI engine — host=%s model=%s",
-            self._settings.ollama_host,
-            self._settings.default_model,
-        )
-
-        try:
-            self._ensure_model_available()
-            # Lightweight generate to confirm end-to-end communication.
-            reply = self.generate(PromptBuilder.ping())
-            log.info("AI engine ready (ping response: %r)", reply[:80])
-            self._started = True
-        except AIError:
-            log.exception("AI engine failed startup health check")
-            raise
+        """Mark the AI service started after a lightweight availability check."""
+        if not self.is_available():
+            raise AIError(f"Ollama server unreachable at {self._host}")
+        self._started = True
 
     def stop(self) -> None:
-        """Release the HTTP session."""
-        self._client.close()
+        """Stop the AI service."""
         self._started = False
-        log.info("AI engine stopped")
 
     def healthy(self) -> bool:
-        """True after a successful :meth:`start`."""
+        """Return True once the service has started successfully."""
         return self._started
 
-    def generate(self, prompt: str, *, model: str | None = None) -> str:
-        """
-        Send *prompt* to Ollama and return the model's text response.
+    def complete(
+        self,
+        prompt_name: str,
+        variables: dict[str, Any],
+        stream: bool = False,
+    ) -> str:
+        """Render a registered prompt and return the model response text."""
+        system_prompt, user_prompt = self._registry.render(prompt_name, variables)
+        started_at = time.perf_counter()
+        model = self._model
 
-        Uses the default model from config unless *model* is provided.
-        On model-not-found errors, automatically retries with
-        ``fallback_model`` once.
-        """
-        primary = model or self._settings.default_model
-        try:
-            return self._generate_once(prompt, model=primary)
-        except AIError as exc:
-            fallback = self._settings.fallback_model
-            if primary == fallback:
-                raise
-            if self._is_model_missing_error(exc):
-                log.warning(
-                    "Model %r unavailable — falling back to %r",
-                    primary,
-                    fallback,
-                )
-                return self._generate_once(prompt, model=fallback)
-            raise
-
-    # ------------------------------------------------------------------
-    # Watcher integration (receive events only — no analysis yet)
-    # ------------------------------------------------------------------
-
-    def on_file_change(self, event: object) -> None:
-        """
-        Receive debounced watcher events.
-
-        Module 3 only acknowledges events at DEBUG level.  Module 4+
-        will enqueue analysis jobs from this hook.
-        """
-        log.debug("[ai] watcher event received (not processed yet): %s", event)
-
-    # ------------------------------------------------------------------
-    # Convenience
-    # ------------------------------------------------------------------
-
-    @property
-    def active_model(self) -> str:
-        """Model name used for the most recent successful call."""
-        return self._model_in_use
-
-    @property
-    def prompt_builder(self) -> PromptBuilder:
-        """Shared :class:`~ai.prompts.PromptBuilder` instance."""
-        return self._prompts
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
-
-    def _generate_once(self, prompt: str, *, model: str) -> str:
-        def _call() -> str:
-            payload = self._client.generate(prompt, model=model)
-            return self._parser.parse_generate(payload)
-
-        text = self._requests.execute(_call, label="ollama generate")
-        self._model_in_use = model
+        response = self._chat_with_fallback(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=model,
+            stream=stream,
+        )
+        text = _response_text(response, chat=True).strip()
+        self._log_call(
+            prompt_name=prompt_name,
+            response=response,
+            default_model=model,
+            started_at=started_at,
+        )
         return text
 
-    def _ensure_model_available(self) -> None:
-        def _list() -> list[str]:
-            payload = self._client.list_models()
-            return self._parser.parse_tags(payload)
+    def complete_raw(self, prompt_text: str) -> str:
+        """Send a raw prompt to Ollama without using a prompt template."""
+        started_at = time.perf_counter()
+        model = self._model
 
-        names = self._requests.execute(_list, label="ollama tags")
-        target = self._settings.default_model
+        response = self._generate_with_fallback(prompt_text, model=model)
+        text = _response_text(response, chat=False).strip()
+        self._log_call(
+            prompt_name="<raw>",
+            response=response,
+            default_model=model,
+            started_at=started_at,
+        )
+        return text
 
-        if not any(self._model_matches(name, target) for name in names):
-            log.warning(
-                "Model %r not found in Ollama tags (%d models listed). "
-                "Run: ollama pull %s",
-                target,
-                len(names),
-                target,
+    def is_available(self) -> bool:
+        """Return True when the Ollama server can be reached."""
+        try:
+            self._client.list()
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Ollama availability check failed: %s", exc)
+            return False
+
+    async def acomplete(
+        self,
+        prompt_name: str,
+        variables: dict[str, Any],
+        stream: bool = False,
+    ) -> str:
+        """Async version of :meth:`complete` using ``ollama.AsyncClient``."""
+        system_prompt, user_prompt = self._registry.render(prompt_name, variables)
+        started_at = time.perf_counter()
+        model = self._model
+
+        response = await self._achat_with_fallback(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=model,
+            stream=stream,
+        )
+        text = _response_text(response, chat=True).strip()
+        self._log_call(
+            prompt_name=prompt_name,
+            response=response,
+            default_model=model,
+            started_at=started_at,
+        )
+        return text
+
+    async def acomplete_raw(self, prompt_text: str) -> str:
+        """Async raw completion using ``ollama.AsyncClient``."""
+        started_at = time.perf_counter()
+        model = self._model
+
+        response = await self._agenerate_with_fallback(prompt_text, model=model)
+        text = _response_text(response, chat=False).strip()
+        self._log_call(
+            prompt_name="<raw>",
+            response=response,
+            default_model=model,
+            started_at=started_at,
+        )
+        return text
+
+    def on_file_change(self, event: object) -> None:
+        """Receive EventBus/file watcher events for future AI workflows."""
+        log.debug("[ai] watcher event received: %s", event)
+
+    def _make_client(self, class_name: str) -> Any:
+        client_cls = getattr(self._ollama, class_name)
+        try:
+            return client_cls(host=self._host, timeout=self._settings.timeout)
+        except TypeError:
+            return client_cls(host=self._host)
+
+    def _chat_with_fallback(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        stream: bool,
+    ) -> Any:
+        try:
+            return self._chat(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                stream=stream,
             )
+        except AIError as exc:
+            if self._should_fallback(exc, model):
+                return self._chat(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    model=self._fallback_model,
+                    stream=stream,
+                )
+            raise
 
-    @staticmethod
-    def _model_matches(installed: str, requested: str) -> bool:
-        """
-        Ollama tag names may include variant suffixes.
+    def _chat(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        stream: bool,
+    ) -> Any:
+        try:
+            response = self._client.chat(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                stream=stream,
+                options=self._options(),
+            )
+            self.active_model = model
+            return _collect_stream(response) if stream else response
+        except Exception as exc:  # noqa: BLE001
+            raise self._to_ai_error(exc) from exc
 
-        Treat ``qwen2.5-coder:7b`` as matching related tag names.
-        """
-        return (
-            installed == requested
-            or installed.startswith(requested + "-")
-            or installed.startswith(requested + ":")
-            or requested in installed
+    def _generate_with_fallback(self, prompt_text: str, *, model: str) -> Any:
+        try:
+            return self._generate(prompt_text, model=model)
+        except AIError as exc:
+            if self._should_fallback(exc, model):
+                return self._generate(prompt_text, model=self._fallback_model)
+            raise
+
+    def _generate(self, prompt_text: str, *, model: str) -> Any:
+        try:
+            response = self._client.generate(
+                model=model,
+                prompt=prompt_text,
+                stream=False,
+                options=self._options(),
+            )
+            self.active_model = model
+            return response
+        except Exception as exc:  # noqa: BLE001
+            raise self._to_ai_error(exc) from exc
+
+    async def _achat_with_fallback(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        stream: bool,
+    ) -> Any:
+        try:
+            return await self._achat(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                stream=stream,
+            )
+        except AIError as exc:
+            if self._should_fallback(exc, model):
+                return await self._achat(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    model=self._fallback_model,
+                    stream=stream,
+                )
+            raise
+
+    async def _achat(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        stream: bool,
+    ) -> Any:
+        try:
+            response = await self._async_client.chat(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                stream=stream,
+                options=self._options(),
+            )
+            self.active_model = model
+            return await _acollect_stream(response) if stream else response
+        except Exception as exc:  # noqa: BLE001
+            raise self._to_ai_error(exc) from exc
+
+    async def _agenerate_with_fallback(self, prompt_text: str, *, model: str) -> Any:
+        try:
+            return await self._agenerate(prompt_text, model=model)
+        except AIError as exc:
+            if self._should_fallback(exc, model):
+                return await self._agenerate(prompt_text, model=self._fallback_model)
+            raise
+
+    async def _agenerate(self, prompt_text: str, *, model: str) -> Any:
+        try:
+            response = await self._async_client.generate(
+                model=model,
+                prompt=prompt_text,
+                stream=False,
+                options=self._options(),
+            )
+            self.active_model = model
+            return response
+        except Exception as exc:  # noqa: BLE001
+            raise self._to_ai_error(exc) from exc
+
+    def _options(self) -> dict[str, Any]:
+        return {
+            "temperature": self._settings.temperature,
+            "num_predict": self._settings.max_tokens,
+        }
+
+    def _should_fallback(self, exc: AIError, model: str) -> bool:
+        return model != self._fallback_model and _is_model_missing(exc)
+
+    def _to_ai_error(self, exc: Exception) -> AIError:
+        response_error = getattr(self._ollama, "ResponseError", None)
+        if response_error is not None and isinstance(exc, response_error):
+            message = str(exc)
+            if _looks_like_model_missing(message):
+                return AIError(f"Ollama model not found: {message}")
+            return AIError(f"Ollama error: {message}")
+
+        message = str(exc)
+        lowered = message.lower()
+        if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) or "timeout" in lowered:
+            return AIError(f"Ollama request timed out: {message}")
+        if isinstance(exc, OSError) or "connection refused" in lowered:
+            return AIError(f"Cannot reach Ollama at {self._host}: {message}")
+        if _looks_like_model_missing(message):
+            return AIError(f"Ollama model not found: {message}")
+        return AIError(f"Ollama request failed: {message}")
+
+    def _log_call(
+        self,
+        *,
+        prompt_name: str,
+        response: Any,
+        default_model: str,
+        started_at: float,
+    ) -> None:
+        latency_ms = int((time.perf_counter() - started_at) * 1000)
+        model = _get(response, "model", default_model)
+        token_count = int(_get(response, "eval_count", 0) or 0)
+        log.info(
+            "AI call prompt_name=%s model=%s latency_ms=%d token_count=%d",
+            prompt_name,
+            model,
+            latency_ms,
+            token_count,
         )
 
-    @staticmethod
-    def _is_model_missing_error(exc: AIError) -> bool:
-        message = str(exc).lower()
-        return "model" in message and (
-            "not found" in message
-            or "does not exist" in message
-            or "404" in message
-        )
+
+def _load_ollama() -> Any:
+    try:
+        return importlib.import_module("ollama")
+    except ModuleNotFoundError as exc:
+        raise AIError(
+            "The official 'ollama' package is required. Install it with "
+            "`pip install ollama`."
+        ) from exc
+
+
+def _get(response: Any, key: str, default: Any = None) -> Any:
+    if isinstance(response, dict):
+        return response.get(key, default)
+    return getattr(response, key, default)
+
+
+def _response_text(response: Any, *, chat: bool) -> str:
+    if chat:
+        message = _get(response, "message", {})
+        if isinstance(message, dict):
+            return str(message.get("content", ""))
+        return str(getattr(message, "content", ""))
+    return str(_get(response, "response", ""))
+
+
+def _collect_stream(response: Iterable[Any]) -> dict[str, Any]:
+    content: list[str] = []
+    final: Any = {}
+    for chunk in response:
+        final = chunk
+        content.append(_response_text(chunk, chat=True))
+    result = dict(final) if isinstance(final, dict) else {"model": _get(final, "model")}
+    result["message"] = {"content": "".join(content)}
+    result.setdefault("eval_count", _get(final, "eval_count", 0))
+    return result
+
+
+async def _acollect_stream(response: Any) -> dict[str, Any]:
+    content: list[str] = []
+    final: Any = {}
+    async for chunk in response:
+        final = chunk
+        content.append(_response_text(chunk, chat=True))
+    result = dict(final) if isinstance(final, dict) else {"model": _get(final, "model")}
+    result["message"] = {"content": "".join(content)}
+    result.setdefault("eval_count", _get(final, "eval_count", 0))
+    return result
+
+
+def _is_model_missing(exc: AIError) -> bool:
+    return _looks_like_model_missing(str(exc))
+
+
+def _looks_like_model_missing(message: str) -> bool:
+    lowered = message.lower()
+    return "model" in lowered and (
+        "not found" in lowered or "does not exist" in lowered or "404" in lowered
+    )

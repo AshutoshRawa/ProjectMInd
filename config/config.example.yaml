@@ -31,5 +31,6 @@ watcher:
 
 ai:
   # Override the model if you have a smaller / larger one pulled in Ollama.
-  default_model: "qwen2.5-coder:7b"
+  default_model: "qwen2.5-coder:14b"
+  fallback_model: "qwen2.5-coder:14b"
   ollama_host: "http://localhost:11434"
