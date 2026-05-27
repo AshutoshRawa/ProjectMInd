@@ -18,9 +18,8 @@ from __future__ import annotations
 import sys
 
 from core.bootstrap import bootstrap
-from core.exceptions import ProjectMindError
-from core.interfaces import AIClient, FileWatcher
-from core.logger import get_logger
+from core import AIClient, Analyzer, FileWatcher, get_logger
+from core import ProjectMindError
 
 
 def main() -> int:
@@ -65,6 +64,11 @@ def main() -> int:
                 settings.ai.ollama_host,
             )
             return 1
+
+        if settings.analysis.enabled:
+            analysis = app.registry.get(Analyzer)
+            analysis.start()
+            log.info(" Analysis     : enabled")
 
         if settings.watcher.enabled:
             watcher = app.registry.get(FileWatcher)

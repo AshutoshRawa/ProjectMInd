@@ -26,10 +26,15 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from core.config import VaultFrontmatterSettings
-from core.exceptions import VaultError
-from core.logger import get_logger
-from core.utils import atomic_write_text, ensure_dir, now_iso, slugify
+from core import (
+    VaultError,
+    VaultFrontmatterSettings,
+    atomic_write_text,
+    ensure_dir,
+    get_logger,
+    now_iso,
+    slugify,
+)
 from obsidian.markdown import compose_note, parse_frontmatter
 
 _log = get_logger(__name__)

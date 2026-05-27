@@ -47,5 +47,7 @@ logs/
 vault/
 vault/.obsidian/workspace*
 vault/.obsidian/cache
-config/config.yaml          # user override — never commit
-config/runtime.yaml         # ephemeral runtime overrides
+
+# User override / runtime config — never commit.
+config/config.yaml
+config/runtime.yaml

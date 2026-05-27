@@ -20,10 +20,7 @@ from pathlib import Path
 
 from watchdog.observers.polling import PollingObserver
 
-from core.config import WatcherSettings
-from core.exceptions import WatcherError
-from core.interfaces import FileWatcher
-from core.logger import get_logger
+from core import FileWatcher, WatcherError, WatcherSettings, get_logger
 from watcher.events import FileChangeEvent
 from watcher.file_tracker import FileTracker
 from watcher.filters import PathFilter

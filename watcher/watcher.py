@@ -24,7 +24,7 @@ from watchdog.events import (
     FileSystemEventHandler,
 )
 
-from core.logger import get_logger
+from core import get_logger
 from watcher.events import ChangeKind
 from watcher.file_tracker import FileTracker
 from watcher.filters import PathFilter

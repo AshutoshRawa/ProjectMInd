@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from core.utils import now_iso
+from core import now_iso
 
 
 class ChangeKind(str, Enum):

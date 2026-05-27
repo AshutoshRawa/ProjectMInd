@@ -10,7 +10,7 @@ long-term **project intelligence**: architecture maps, feature histories,
 bug timelines, API catalogues, and an Obsidian-compatible knowledge graph
 you actually own.
 
-This repository ships **Module 1: Foundation Engine**, **Module 2: Watcher Engine**, and **Module 3: AI Communication Engine**.  Higher modules (code analysis, memory engine, graph builder, etc.) are stubbed as interfaces and filled in over time — see [Roadmap](#roadmap).
+This repository ships **Module 1: Foundation Engine**, **Module 2: Watcher Engine**, **Module 3: AI Communication Engine**, and **Module 4: Code & Architecture Analysis**. Higher modules (memory engine, graph builder, git intelligence, etc.) are stubbed as interfaces and filled in over time — see [Roadmap](#roadmap).
 
 ---
 
@@ -19,16 +19,17 @@ This repository ships **Module 1: Foundation Engine**, **Module 2: Watcher Engin
 1. [What's in Module 1](#whats-in-module-1)
 2. [Module 2 Documentation](#module-2-documentation)
 3. [Module 3 Documentation](#module-3-documentation)
-4. [Quick start](#quick-start)
-5. [Project layout](#project-layout)
-6. [Architecture](#architecture)
-7. [Startup flow](#startup-flow)
-8. [Configuration](#configuration)
-9. [Logging](#logging)
-10. [The vault](#the-vault)
-11. [Testing](#testing)
-12. [Roadmap](#roadmap)
-13. [Future scalability notes](#future-scalability-notes)
+4. [Module 4 Documentation](#module-4-documentation)
+5. [Quick start](#quick-start)
+6. [Project layout](#project-layout)
+7. [Architecture](#architecture)
+8. [Startup flow](#startup-flow)
+9. [Configuration](#configuration)
+10. [Logging](#logging)
+11. [The vault](#the-vault)
+12. [Testing](#testing)
+13. [Roadmap](#roadmap)
+14. [Future scalability notes](#future-scalability-notes)
 
 ---
 
@@ -54,7 +55,9 @@ modules to plug in cleanly.  It contains:
 
 **Module 3 (AI Communication Engine)** connects the system to a local Ollama server running Qwen models, enabling secure prompt-response generation, automated error retries, exponential backoffs, and strict response structural validation.
 
-**Not implemented yet** (intentionally): embeddings, vector DBs, graph generation, git parsing, semantic analysis.  Those land in later modules.
+**Module 4 (Code & Architecture Analysis)** consumes watcher events through `EventBus`, extracts Python structure with AST analysis, enriches file summaries through the registered `code_analysis` AI prompt, and publishes structured analysis results.
+
+**Not implemented yet** (intentionally): embeddings, vector DBs, graph generation, git parsing, memory synthesis. Those land in later modules.
 
 ---
 
@@ -210,6 +213,88 @@ ai:
 
 ---
 
+## Module 4 Documentation
+
+Module 4 is the **Code & Architecture Analysis** engine. It subscribes to watcher file-change events through `core.EventBus`, performs lightweight static analysis, optionally enriches the result with the Module 3 AI client, and emits structured analysis payloads back onto the event bus.
+
+The analyzer integrates with earlier modules by reusing:
+- `core.AnalysisSettings` for analysis configuration
+- `core.EventBus` for all module-to-module communication
+- `core.Analyzer` as the service contract
+- `core.get_logger()` for lifecycle and error logging
+- `ai.get_ai().complete("code_analysis", variables)` for AI enrichment
+- `watcher.FileChangeEvent` from the public watcher package surface
+
+### What Module 4 does
+
+For supported file-change events, Module 4:
+
+- handles deleted, missing, oversized, and empty files without calling AI
+- detects the file language from extension
+- extracts Python functions, classes, imports, line counts, call names, docstring presence, and approximate cyclomatic complexity
+- sends code to the registered `code_analysis` prompt for AI summary and improvement signals
+- parses plain JSON, fenced JSON, and lightly malformed JSON with trailing commas
+- publishes `analysis.file_analyzed` events containing structured analysis data
+
+### Analysis package layout
+
+```text
+analysis/
+├── __init__.py             # public exports
+├── analysis_types.py       # FileAnalysis and FunctionInfo data models
+├── analyzer_engine.py      # Analyzer service and EventBus wiring
+├── ast_analyzer.py         # Python AST extraction
+├── complexity.py           # cyclomatic complexity helper
+└── dependency_mapper.py    # local dependency graph helper
+```
+
+### Runtime flow
+
+1. `bootstrap()` creates the shared `EventBus`.
+2. When `analysis.enabled=true`, `bootstrap()` registers `Module4AnalyzerEngine` as `Analyzer`.
+3. `main.py` starts the analyzer service.
+4. The watcher publishes `watcher.file_change` events through `EventBus`.
+5. Module 4 queues accepted `FileChangeEvent` payloads on a worker thread.
+6. The worker performs static analysis and AI enrichment.
+7. Module 4 publishes an `analysis.file_analyzed` payload for downstream memory, graph, or documentation modules.
+
+### Example output payload
+
+```python
+{
+    "file_path": "/path/to/project/src/calculator.py",
+    "language": "python",
+    "change_kind": "modified",
+    "analysis": {
+        "path": "/path/to/project/src/calculator.py",
+        "language": "python",
+        "lines_of_code": 42,
+        "functions": [
+            {
+                "name": "add",
+                "line_start": 10,
+                "line_end": 12,
+                "params": ["a", "b"],
+                "complexity": 1,
+                "has_docstring": true,
+                "calls": [],
+            }
+        ],
+        "classes": ["Calculator"],
+        "imports": ["math"],
+        "ai_summary": "Provides calculator helpers.",
+        "anti_patterns": ["Add error handling for invalid input."],
+        "analyzed_at": 1779863479.117874,
+    },
+}
+```
+
+### Module 4 boundaries
+
+Module 4 analyzes and emits file intelligence only. It does not write Obsidian notes, create long-term memory, update graph files, parse git history, or directly call Ollama. AI access stays behind `get_ai().complete("code_analysis", variables)`.
+
+---
+
 ## Quick start
 
 ### Requirements
@@ -268,6 +353,28 @@ ProjectMind will stay running, log debounced file events at `INFO`, and
 exit cleanly on Ctrl+C.  Ignored paths include `node_modules`, `.git`,
 `__pycache__`, `dist`, `build`, `venv`, `.next`, and `coverage`.
 
+### Module 4 — enable analysis
+
+Module 4 needs the watcher and AI engine because file changes arrive through
+`EventBus` and AI enrichment uses the registered `code_analysis` prompt.
+
+```yaml
+# config/config.yaml
+watcher:
+  enabled: true
+analysis:
+  enabled: true
+```
+
+```bash
+ollama pull qwen2.5-coder:14b
+python main.py
+```
+
+Create or edit a supported file under one of the watched directories
+(`backend/`, `frontend/`, `src/`, or `app/`) and Module 4 will publish an
+`analysis.file_analyzed` event.
+
 ### Customising
 
 Copy the example config and edit:
@@ -303,8 +410,8 @@ ProjectMind/
 │   ├── markdown.py
 │   └── vault.py
 ├── watcher/               # Module 2 — file change detection
-├── ai/                    # 🔜 Module 3 — Ollama / Qwen integration
-├── analysis/              # 🔜 Module 4 — code & architecture analysis
+├── ai/                    # Module 3 — Ollama / Qwen integration
+├── analysis/              # Module 4 — code & architecture analysis
 ├── memory/                # 🔜 Module 5 — long-term project memory
 ├── graph/                 # 🔜 Module 6 — Obsidian graph generation
 ├── git/                   # 🔜 git history parsing
@@ -369,7 +476,8 @@ plugin-ready local system:
   domain.  Domain packages may depend on infrastructure but never the
   reverse.
 - **No circular imports** — every module touches `core` directly and
-  reaches sibling services via the registry.
+  reaches sibling services through public package surfaces, service
+  interfaces, and EventBus messages.
 - **Interfaces over implementations** — `core/interfaces.py` defines the
   contracts; concrete classes are wired only inside `bootstrap.py`.
 - **Plugin-ready** — registering a new service is a one-liner in
@@ -396,7 +504,9 @@ plugin-ready local system:
    `project_root`, `logs_dir`.
 7. **Signal handlers** for `SIGINT` / `SIGTERM` are bound so Ctrl-C
    triggers graceful shutdown hooks instead of an ugly traceback.
-8. The fully-built **`Application`** handle is returned to `main`.
+8. **AI**, **Watcher**, and **Analysis** services are registered according
+   to config flags and wired through the shared `EventBus`.
+9. The fully-built **`Application`** handle is returned to `main`.
 
 Shutdown runs every registered hook in LIFO order, swallowing
 individual failures so one misbehaving module cannot block the rest.
@@ -499,6 +609,8 @@ The test suite covers:
 - Vault initialisation, write/read round-trip, missing sections
 - Markdown front-matter parse + compose round-trip
 - Watcher filters, debounce tracker, and live observer smoke test
+- AI prompt rendering, response parsing, fallback handling, and async calls
+- Module 4 AST extraction, EventBus analysis flow, delete handling, and AI enrichment parsing
 
 ---
 
@@ -509,7 +621,7 @@ The test suite covers:
 | 1      | ✅     | Foundation engine (this repo)                        |
 | 2      | ✅     | File watcher with debounced event pipeline           |
 | 3      | ✅     | Ollama / Qwen client + AI service abstraction        |
-| 4      | 🔜     | Code & architecture analysis                          |
+| 4      | ✅     | Code & architecture analysis                          |
 | 5      | 🔜     | Long-term memory engine                               |
 | 6      | 🔜     | Obsidian graph builder                                |
 | 7+     | 🔜     | Git history parsing, intelligence synthesis, plugins |
@@ -529,10 +641,9 @@ The foundation was deliberately built for the long haul:
 - **Multi-project indexing** — `paths.project_root` is settable per
   bootstrap call, so a future supervisor can spin up one
   `Application` per indexed project, each with its own vault.
-- **Event bus** — once watchers and analysers exist, an in-process
-  event bus will be added beside the registry.  Because nothing in
-  Module 1 reaches across modules directly, introducing it will be
-  additive, not disruptive.
+- **Event bus** — watchers, AI, and analysis communicate through the
+  in-process `EventBus`, keeping higher modules decoupled as memory,
+  graph, and documentation pipelines are added.
 - **No DB lock-in** — Module 1 is markdown-only.  When a vector DB is
   needed (Module 5+) it will hide behind a `MemoryEngine` interface
   and stay swappable.

@@ -22,7 +22,19 @@ allows event types to be imported without requiring watchdog at import time.
 
 from watcher.events import ChangeKind, FileChangeEvent
 
-__all__ = [
-    "ChangeKind",
-    "FileChangeEvent",
-]
+__all__ = ["ChangeKind", "FileChangeEvent", "WatcherManager"]
+
+
+def __getattr__(name: str):
+    """
+    Lazy exports to keep this package import lightweight.
+
+    WatcherManager pulls in watchdog, so we only import it when explicitly
+    requested (e.g. when watcher.enabled=true).
+    """
+
+    if name == "WatcherManager":
+        from watcher.watcher_manager import WatcherManager
+
+        return WatcherManager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

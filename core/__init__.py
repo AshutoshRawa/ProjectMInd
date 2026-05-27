@@ -16,22 +16,33 @@ time.  Import it explicitly::
 
 from __future__ import annotations
 
-from core.config import AISettings, ConfigLoader, Settings
+from core.config import (
+    AISettings,
+    AnalysisSettings,
+    ConfigLoader,
+    GraphSettings,
+    MemorySettings,
+    Settings,
+    VaultFrontmatterSettings,
+    VaultSettings,
+    WatcherSettings,
+)
 from core.event_bus import EventBus
 from core.exceptions import (
     AIError,
     BootstrapError,
     ConfigError,
     ProjectMindError,
+    VaultError,
     PromptNotFoundError,
     RegistryError,
     ResponseParseError,
-    VaultError,
     WatcherError,
 )
-from core.interfaces import AIClient, FileWatcher
+from core.interfaces import AIClient, Analyzer, FileWatcher, GraphBuilder, MemoryEngine
 from core.logger import get_logger, set_level
 from core.registry import ServiceRegistry
+from core.utils import atomic_write_text, ensure_dir, now_iso, slugify
 
 _config: Settings | None = None
 
@@ -46,9 +57,17 @@ def get_config() -> Settings:
 __all__ = [
     "AIClient",
     "AISettings",
+    "Analyzer",
+    "AnalysisSettings",
     "ConfigLoader",
+    "GraphBuilder",
+    "GraphSettings",
     "EventBus",
     "FileWatcher",
+    "MemoryEngine",
+    "MemorySettings",
+    "VaultFrontmatterSettings",
+    "VaultSettings",
     "Settings",
     "ServiceRegistry",
     "get_config",
@@ -63,4 +82,8 @@ __all__ = [
     "VaultError",
     "WatcherError",
     "BootstrapError",
+    "atomic_write_text",
+    "ensure_dir",
+    "now_iso",
+    "slugify",
 ]

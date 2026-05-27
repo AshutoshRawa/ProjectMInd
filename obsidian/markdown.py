@@ -25,7 +25,7 @@ from typing import Any
 
 import yaml
 
-from core.exceptions import VaultError
+from core import VaultError
 
 _FRONTMATTER_RE = re.compile(
     r"\A---\s*\n(?P<fm>.*?)\n---\s*\n?(?P<body>.*)\Z",

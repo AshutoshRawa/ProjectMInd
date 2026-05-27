@@ -26,14 +26,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from core import logger as logger_module
-from core.config import ConfigLoader, Settings
+from core import (
+    EventBus,
+    ConfigLoader,
+    Settings,
+    AIClient,
+    Analyzer,
+    FileWatcher,
+    get_logger,
+    ensure_dir,
+    logger as logger_module,
+)
 from core.exceptions import BootstrapError, ProjectMindError
-from core.interfaces import AIClient, FileWatcher
-from core.logger import get_logger
 from core.registry import ServiceRegistry
-from core.utils import ensure_dir
-from obsidian.vault import VaultManager
+from obsidian import VaultManager
 
 
 # ---------------------------------------------------------------------------
@@ -139,21 +145,25 @@ def bootstrap(
         registry.register(VaultManager, vault)
         registry.register("project_root", project_root)
         registry.register("logs_dir", logs_dir)
+        event_bus = EventBus()
+        registry.register(EventBus, event_bus)
 
         # 5b. AI (Module 3) — always registered; started from main ------------
-        from ai import AIManager
+        from ai import init_ai
 
-        ai_manager = AIManager(settings=settings.ai)
+        ai_manager = init_ai(settings=settings.ai)
         registry.register(AIClient, ai_manager)
+        ai_manager.register_event_handlers(event_bus)
 
         # 5c. Watcher (Module 2) — register when enabled, start from main ----
         if settings.watcher.enabled:
-            from watcher.watcher_manager import WatcherManager
+            from watcher import WatcherManager
 
             def _on_watcher_event(event: object) -> None:
-                # Keep Module 2 logging; Module 3 receives events for future analysis.
+                # Keep Module 2 logging; then publish via EventBus for all
+                # downstream modules (Module 3 + later Modules).
                 WatcherManager._default_on_event(event)  # type: ignore[arg-type]
-                ai_manager.on_file_change(event)
+                event_bus.publish("watcher.file_change", {"event": event})
 
             watcher = WatcherManager(
                 project_root=project_root,
@@ -161,6 +171,16 @@ def bootstrap(
                 on_event=_on_watcher_event,
             )
             registry.register(FileWatcher, watcher)
+
+        # 5d. Analysis (Module 4) — register when enabled, start from main
+        if settings.analysis.enabled:
+            from analysis import Module4AnalyzerEngine
+
+            analysis_engine = Module4AnalyzerEngine(
+                bus=event_bus,
+                settings=settings.analysis,
+            )
+            registry.register(Analyzer, analysis_engine)
 
         # 6. Build the Application handle -------------------------------------
         app = Application(
@@ -176,6 +196,10 @@ def bootstrap(
         if settings.watcher.enabled:
             watcher_svc = registry.get(FileWatcher)
             app.on_shutdown(watcher_svc.stop)
+
+        if settings.analysis.enabled:
+            analysis_svc = registry.get(Analyzer)
+            app.on_shutdown(analysis_svc.stop)
 
         # 8. Signal handlers (optional) ---------------------------------------
         if install_signal_handlers:

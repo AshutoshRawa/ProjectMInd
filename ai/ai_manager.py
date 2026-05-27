@@ -14,7 +14,7 @@ import time
 from collections.abc import Iterable
 from typing import Any
 
-from core import AIClient, AIError, AISettings, get_logger
+from core import AIClient, AIError, AISettings, EventBus, get_logger
 
 from ai.prompt_registry import PromptRegistry, _register_defaults
 
@@ -62,6 +62,9 @@ class AIManager(AIClient):
 
         self._registry = PromptRegistry()
         _register_defaults(self._registry)
+        self._event_bus: EventBus | None = None
+        self._event_name: str | None = None
+        self._event_handler: Any | None = None
 
     def start(self) -> None:
         """Mark the AI service started after a lightweight availability check."""
@@ -72,6 +75,15 @@ class AIManager(AIClient):
     def stop(self) -> None:
         """Stop the AI service."""
         self._started = False
+        if (
+            self._event_bus is not None
+            and self._event_name is not None
+            and self._event_handler is not None
+        ):
+            self._event_bus.unsubscribe(self._event_name, self._event_handler)
+            self._event_bus = None
+            self._event_name = None
+            self._event_handler = None
 
     def healthy(self) -> bool:
         """Return True once the service has started successfully."""
@@ -171,6 +183,37 @@ class AIManager(AIClient):
     def on_file_change(self, event: object) -> None:
         """Receive EventBus/file watcher events for future AI workflows."""
         log.debug("[ai] watcher event received: %s", event)
+
+    def register_event_handlers(
+        self,
+        bus: EventBus,
+        *,
+        event_name: str = "watcher.file_change",
+    ) -> None:
+        """
+        Subscribe to EventBus notifications this module can consume.
+
+        Keeping this logic inside the module prevents other modules from
+        depending on module 3's internal handler wiring.
+        """
+        # Ensure idempotency: only one subscription per AIManager instance.
+        if self._event_bus is bus and self._event_name == event_name:
+            return
+
+        # If we were previously subscribed to a different bus/name, detach.
+        if self._event_bus is not None and self._event_name is not None and self._event_handler is not None:
+            self._event_bus.unsubscribe(self._event_name, self._event_handler)
+
+        self._event_bus = bus
+        self._event_name = event_name
+
+        def _handler(payload: dict[str, Any]) -> None:
+            event = payload.get("event")
+            if event is not None:
+                self.on_file_change(event)
+
+        self._event_handler = _handler
+        bus.subscribe(event_name, _handler)
 
     def _make_client(self, class_name: str) -> Any:
         client_cls = getattr(self._ollama, class_name)

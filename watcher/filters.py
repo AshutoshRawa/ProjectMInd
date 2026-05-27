@@ -16,7 +16,7 @@ from __future__ import annotations
 import fnmatch
 from pathlib import Path
 
-from core.config import WatcherSettings
+from core import WatcherSettings
 
 
 # Default directory names skipped anywhere in a watched tree.
