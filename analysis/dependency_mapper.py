@@ -71,3 +71,32 @@ def _resolve_local_import(
         if (candidate / "__init__.py").exists():
             return str(candidate / "__init__.py")
     return None
+
+
+def resolve_local_import(import_str: str, base_path: str | Path) -> str | None:
+    """Resolve a dotted import string to a local file path.
+
+    Parameters
+    ----------
+    import_str:
+        A dotted import string (e.g. ``"analysis.complexity"``).
+    base_path:
+        Project root directory to search within.
+
+    Returns
+    -------
+    str | None
+        Absolute file path if the import can be resolved to a local
+        ``.py`` file or package, otherwise ``None``.
+    """
+    project_root = Path(base_path).resolve()
+    if not project_root.is_dir():
+        return None
+
+    roots = {p.name for p in project_root.iterdir() if p.is_dir()}
+    return _resolve_local_import(
+        import_str,
+        roots=roots,
+        file_index={},
+        project_root=project_root,
+    )

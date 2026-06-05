@@ -132,3 +132,88 @@ def _import_entries(node: ast.Import | ast.ImportFrom) -> list[str]:
         else:
             out.append(alias.name)
     return out
+
+
+def analyze_python_file(path: Path) -> FileAnalysis:
+    """Read a Python file and return a complete :class:`FileAnalysis`.
+
+    This is a convenience wrapper that combines AST extraction with
+    AI-powered enrichment (summary and anti-pattern detection).
+
+    On I/O or syntax errors the returned analysis will contain whatever
+    structural data could be extracted, with empty AI fields.
+    """
+    import time  # deferred to avoid circular at module level
+
+    try:
+        source = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return FileAnalysis(
+            path=str(path),
+            language="python",
+            lines_of_code=0,
+            functions=[],
+            classes=[],
+            imports=[],
+            ai_summary="",
+            anti_patterns=[],
+            analyzed_at=time.time(),
+        )
+
+    extract = analyze_python(path, source)
+
+    # Best-effort AI enrichment.
+    ai_summary = ""
+    anti_patterns: list[str] = []
+    try:
+        from ai import get_ai  # noqa: PLC0415 — deferred to break circular import
+
+        text = get_ai().complete(
+            "code_analysis",
+            {"file_path": str(path), "language": "python", "code": source},
+        )
+        # Try to parse structured JSON response.
+        import json as _json
+        import re as _re
+
+        cleaned = text.strip()
+        fence = _re.search(r"```(?:json|JSON)?\s*([\s\S]*?)\s*```", cleaned)
+        if fence:
+            cleaned = fence.group(1).strip()
+        try:
+            parsed = _json.loads(cleaned)
+        except _json.JSONDecodeError:
+            obj_match = _re.search(r"\{[\s\S]*\}", cleaned)
+            try:
+                parsed = _json.loads(obj_match.group(0)) if obj_match else None
+            except (_json.JSONDecodeError, AttributeError):
+                parsed = None
+
+        if isinstance(parsed, dict):
+            purpose = parsed.get("purpose")
+            ai_summary = purpose.strip() if isinstance(purpose, str) else ""
+            suggestions = parsed.get("suggestions")
+            if isinstance(suggestions, list):
+                anti_patterns = [str(x).strip() for x in suggestions if str(x).strip()]
+        elif text:
+            # Fall back to line-based parsing.
+            for ln in text.splitlines():
+                stripped = ln.strip()
+                if stripped.startswith(("-", "*")) and len(stripped) > 2:
+                    anti_patterns.append(stripped[1:].strip())
+                elif stripped:
+                    ai_summary += (" " + stripped) if ai_summary else stripped
+    except Exception:  # noqa: BLE001 — AI failure must never crash analysis
+        pass
+
+    return FileAnalysis(
+        path=str(path),
+        language=extract.language,
+        lines_of_code=extract.lines_of_code,
+        functions=extract.functions,
+        classes=extract.classes,
+        imports=extract.imports,
+        ai_summary=ai_summary,
+        anti_patterns=anti_patterns,
+        analyzed_at=time.time(),
+    )
