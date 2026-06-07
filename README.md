@@ -15,7 +15,7 @@
 | 3 | AI Communication | ✅ | Ollama/Qwen client with prompt templates |
 | 4 | Code Analysis | ✅ | AST extraction, complexity, dependency mapping |
 | 5 | Documentation Engine | ✅ | Markdown generation with frontmatter & changelogs |
-| 6 | Graph Builder | 🔜 | Obsidian knowledge graph generation |
+| 6 | Graph Engine | ✅ | Incremental dependency graph — orphans, hubs, cycles, hotspots |
 | 7+ | Memory, Git, Intelligence | 🔜 | Long-term memory, git parsing, synthesis |
 
 ---
@@ -178,23 +178,73 @@ class FileAnalysis:
 
 ## Module 5 — Documentation Engine
 
-Generates structured markdown from analysis results. **Produces strings only — never writes to vault** (that's Module 8).
+Converts `FileAnalysis` results into structured markdown strings.  
+**Boundary rule: produces strings only — never writes to the Obsidian vault** (that is Module 8's job).
 
-- **Frontmatter** — YAML block with file path, language, lines, complexity, tags
-- **Doc generator** — deterministic markdown: H1 → blockquote summary → Functions table → Anti-Patterns → Dependencies → Changelog
-- **Changelog** — diffs two `FileAnalysis` snapshots, detects `FUNCTION_ADDED`, `FUNCTION_REMOVED`, `COMPLEXITY_CHANGED`, `IMPORTS_CHANGED`, `AI_SUMMARY_CHANGED`
-- **Templates** — Jinja2 templates stored as string constants (no external files)
-- **AI usage** — only for optional extended description; structure is never AI-generated
-- **EventBus** — subscribes to `analysis.file_analyzed`, publishes `docs.doc_updated`
+### Files
 
 ```
 docs/
-├── frontmatter.py      # build_frontmatter(analysis) → YAML
-├── doc_generator.py    # generate(analysis) → complete markdown
-├── changelog.py        # ChangelogEntry, diff_analyses(), format_changelog()
-├── template_engine.py  # Jinja2 templates + render_doc_template()
+├── frontmatter.py      # build_frontmatter(analysis) → YAML --- block
+├── doc_generator.py    # generate(analysis, changelog_entries) → full markdown
+├── changelog.py        # ChangelogEntry · diff_analyses() · format_changelog()
+├── template_engine.py  # Jinja2 string-templates + render_doc_template()
 └── doc_engine.py       # Module5DocEngine (EventBus service)
 ```
+
+### Public API
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `build_frontmatter` | `(analysis: FileAnalysis) -> str` | YAML `---` block: file, language, lines, complexity, last_analyzed, tags |
+| `generate` | `(analysis, changelog_entries=None) -> str` | Full markdown: frontmatter + body sections |
+| `diff_analyses` | `(old, new: FileAnalysis) -> list[ChangelogEntry]` | Detects changes between two analysis snapshots |
+| `format_changelog` | `(entries, max=5) -> str` | Renders up to 5 changelog entries as a markdown bullet list |
+| `render_doc_template` | `(template_name, context) -> str` | Renders a named Jinja2 template (stored as strings in-module) |
+| `Module5DocEngine` | `(bus, ...) -> Service` | Long-lived EventBus service: start / stop |
+
+### Document sections (in order)
+
+```
+# <filename>                     ← H1
+> <ai_summary>                   ← blockquote
+
+## Functions                     ← table: name | params | complexity | docstring?
+## Anti-Patterns                 ← only rendered when list is non-empty
+## Dependencies                  ← import list
+## Changelog                     ← last 5 entries, most-recent first
+```
+
+### Changelog change types
+
+| Constant | Trigger |
+|----------|---------|
+| `FUNCTION_ADDED` | New function appears in analysis |
+| `FUNCTION_REMOVED` | Function deleted from analysis |
+| `COMPLEXITY_CHANGED` | Weighted complexity score shifts |
+| `IMPORTS_CHANGED` | Import list additions or removals |
+| `AI_SUMMARY_CHANGED` | AI summary text differs |
+
+### Jinja2 templates (stored as string constants)
+
+| Template | Purpose |
+|----------|---------|
+| `file_doc` | Full document layout (used by `generate()`) |
+| `function_table` | Standalone function table |
+| `anti_patterns` | Standalone anti-patterns list |
+| `dependencies` | Standalone dependencies list |
+| `changelog` | Standalone changelog block |
+
+### EventBus contract
+
+| Direction | Event | Payload |
+|-----------|-------|---------|
+| Subscribe | `analysis.file_analyzed` | `{file_path, analysis}` |
+| Publish | `docs.doc_updated` | `{path, markdown_content, frontmatter}` |
+
+### AI usage
+
+`get_ai().complete('doc_generation', {...})` is called **once per file** for an optional extended description paragraph only. All document structure (sections, tables, changelog) is deterministic — never AI-generated. AI failures are silently swallowed and never break doc generation.
 
 ### Example output
 
@@ -235,6 +285,84 @@ tags: [python, src, utils, projectmind]
 
 ---
 
+## Module 6 — Graph Engine
+
+Builds and maintains an **incremental directed dependency graph** of the codebase.  
+**Boundary rule: outputs graph data only — never writes to the Obsidian vault** (that is Module 8's job).
+
+### Files
+
+```
+graph/
+├── graph_builder.py    # GraphEngine — wraps networkx.DiGraph, incremental mutations
+├── graph_state.py      # GraphStateManager · save_graph() · load_graph()
+├── graph_analyzer.py   # find_orphans · find_hubs · find_circular_deps · complexity_hotspots
+└── graph_engine.py     # Module6GraphEngine (EventBus service)
+```
+
+### Public API
+
+#### `GraphEngine` — `graph/graph_builder.py`
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `update_node` | `(analysis: FileAnalysis)` | Add or patch a file node (**incremental** — only touches that node) |
+| `update_edges` | `(analysis: FileAnalysis) -> (added, removed)` | Sync import edges; returns lists of targets added/removed |
+| `remove_node` | `(path: str)` | Remove a node and all its incident edges (safe on missing) |
+| `get_neighbors` | `(path: str) -> list[str]` | Direct import successors of `path` |
+| `get_related_files` | `(path: str, depth=2) -> list[str]` | BFS reachable files within `depth` hops |
+
+Node attributes stored per file:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `language` | `str` | Detected language |
+| `complexity` | `float` | Weighted cyclomatic average |
+| `function_count` | `int` | Number of functions |
+| `last_analyzed` | `float` | Unix timestamp of last analysis |
+
+#### `GraphStateManager` — `graph/graph_state.py`
+
+| Symbol | Description |
+|--------|-------------|
+| `save_graph(graph, path)` | Persist graph as node-link JSON, atomically (`.tmp` → rename) |
+| `load_graph(path) -> DiGraph` | Restore graph; returns fresh empty graph on missing/corrupt file |
+| `record_update(graph) -> bool` | Increment counter; auto-saves every **10 updates**, returns `True` when triggered |
+
+#### `graph_analyzer.py` — pure, side-effect-free functions
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `find_orphans(graph)` | `list[str]` | Nodes with zero in-edges **and** zero out-edges |
+| `find_hubs(graph, threshold=5)` | `list[str]` | Nodes imported by ≥ `threshold` others (high in-degree), sorted desc |
+| `find_circular_deps(graph)` | `list[list[str]]` | All simple cycles via Johnson's algorithm |
+| `complexity_hotspots(graph)` | `list[str]` | Nodes in top-quartile complexity **and** top-quartile in-degree |
+
+### EventBus contract
+
+| Direction | Event | Payload |
+|-----------|-------|---------|
+| Subscribe | `analysis.file_analyzed` | `{file_path, analysis}` |
+| Publish | `graph.graph_updated` | `{updated_node, edges_added, edges_removed, stats}` |
+
+Published `stats` shape:
+
+```python
+{
+    "node_count":   int,   # total nodes in graph
+    "edge_count":   int,   # total edges
+    "orphan_count": int,   # isolated nodes
+}
+```
+
+### Persistence
+
+The graph is serialised to `graph_state.json` using networkx's **node-link format**.  
+Auto-save fires every **10 updates** (not on every change). `stop()` always forces a final save.  
+On load failure the engine starts with a fresh empty graph and logs a warning — never crashes.
+
+---
+
 ## Project Layout
 
 ```
@@ -245,8 +373,8 @@ ProjectMind/
 ├── ai/                 # M3 — Ollama/Qwen AI client
 ├── analysis/           # M4 — code analysis engine
 ├── docs/               # M5 — documentation engine
-├── memory/             # 🔜 M6 — long-term memory
-├── graph/              # 🔜 M7 — Obsidian graph builder
+├── graph/              # M6 — dependency graph engine
+├── memory/             # 🔜 M7 — long-term memory
 ├── git/                # 🔜 git history parsing
 ├── intelligence/       # 🔜 cross-module synthesis
 ├── config/             # YAML configuration files
@@ -255,7 +383,7 @@ ProjectMind/
 ├── logs/               # rotating logs (gitignored)
 ├── tests/              # pytest suite
 ├── main.py             # entry point
-├── requirements.txt    # runtime deps: PyYAML, watchdog, ollama, Jinja2
+├── requirements.txt    # runtime deps: PyYAML, watchdog, ollama, Jinja2, networkx
 └── pyproject.toml      # project metadata + pytest config
 ```
 
@@ -268,7 +396,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest -q
 ```
 
-**83 tests** covering: config, registry, vault, markdown, watcher, AI prompts/parsing/fallback, AST extraction, complexity, dependency mapping, EventBus flows, doc generation, changelog diffing, template rendering, and end-to-end service integration.
+**96 tests** covering: config, registry, vault, markdown, watcher, AI prompts/parsing/fallback, AST extraction, complexity, dependency mapping, EventBus flows, doc generation, changelog diffing, template rendering, graph node/edge mutations, graph persistence (save/load/auto-save/atomic-write), orphan/hub/cycle/hotspot analysis, and end-to-end service integration for M5 and M6.
 
 ---
 
