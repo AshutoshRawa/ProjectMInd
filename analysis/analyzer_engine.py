@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import queue
-import re
 import threading
 from dataclasses import asdict
 from pathlib import Path
-import json
 import time
 from typing import Any
 
 from ai import get_ai
+from analysis._json_utils import parse_json_object, remove_trailing_commas  # noqa: F401
 from analysis.ast_analyzer import analyze_python, empty_extract
 from analysis.analysis_types import FileAnalysis
 from core import AnalysisSettings, EventBus, Analyzer, get_logger
@@ -243,33 +242,9 @@ def _ai_enrich(*, file_path: str, language: str, code: str) -> tuple[str, list[s
     summary = " ".join(summary_lines).strip()
     return summary, anti
 
-
-def _parse_json_object(text: str) -> dict[str, Any] | None:
-    cleaned = (text or "").strip()
-    if not cleaned:
-        return None
-
-    fence_match = re.search(
-        r"```(?:json|JSON)?\s*([\s\S]*?)\s*```",
-        cleaned,
-    )
-    if fence_match:
-        cleaned = fence_match.group(1).strip()
-
-    candidates = [cleaned]
-    object_match = re.search(r"\{[\s\S]*\}", cleaned)
-    if object_match:
-        candidates.append(object_match.group(0))
-
-    for candidate in candidates:
-        try:
-            parsed = json.loads(_remove_trailing_commas(candidate))
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
-    return None
-
-
-def _remove_trailing_commas(text: str) -> str:
-    return re.sub(r",\s*([}\]])", r"\1", text)
+# _parse_json_object and _remove_trailing_commas were moved to
+# analysis/_json_utils.py (imported above as parse_json_object /
+# remove_trailing_commas).  Keep the private aliases for any callers
+# that still reference the old names within this file.
+_parse_json_object = parse_json_object
+_remove_trailing_commas = remove_trailing_commas

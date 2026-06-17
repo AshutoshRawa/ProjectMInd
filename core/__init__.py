@@ -20,8 +20,12 @@ from core.config import (
     AISettings,
     AnalysisSettings,
     ConfigLoader,
+    DocsSettings,
+    GitSettings,
     GraphSettings,
+    IntelligenceSettings,
     MemorySettings,
+    ObsidianSettings,
     Settings,
     VaultFrontmatterSettings,
     VaultSettings,
@@ -39,7 +43,7 @@ from core.exceptions import (
     ResponseParseError,
     WatcherError,
 )
-from core.interfaces import AIClient, Analyzer, FileWatcher, GraphBuilder, MemoryEngine
+from core.interfaces import AIClient, Analyzer, DocumentationGenerator, FileWatcher, GraphBuilder, MemoryEngine
 from core.logger import get_logger, set_level
 from core.registry import ServiceRegistry
 from core.utils import atomic_write_text, ensure_dir, now_iso, slugify
@@ -60,16 +64,22 @@ __all__ = [
     "Analyzer",
     "AnalysisSettings",
     "ConfigLoader",
+    "DocumentationGenerator",
+    "DocsSettings",
+    "GitSettings",
     "GraphBuilder",
     "GraphSettings",
+    "IntelligenceSettings",
     "EventBus",
     "FileWatcher",
     "MemoryEngine",
     "MemorySettings",
+    "ObsidianSettings",
     "VaultFrontmatterSettings",
     "VaultSettings",
     "Settings",
     "ServiceRegistry",
+    "WatcherSettings",
     "get_config",
     "get_logger",
     "set_level",

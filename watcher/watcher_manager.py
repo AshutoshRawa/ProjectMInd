@@ -9,7 +9,8 @@ High-level Watcher Engine orchestration.
 - resolves configured watch directories under the project root
 - attaches a recursive watchdog polling observer per directory
 - filters and debounces events
-- logs accepted changes (no AI / documentation in this module)
+- publishes :data:`WATCHER_EVENT` on the :class:`~core.EventBus` when one is
+  injected (preferred), *or* invokes an ``on_event`` callback (legacy/testing)
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from watchdog.observers.polling import PollingObserver
 
@@ -26,7 +28,13 @@ from watcher.file_tracker import FileTracker
 from watcher.filters import PathFilter
 from watcher.watcher import ProjectMindEventHandler
 
+if TYPE_CHECKING:
+    from core import EventBus
+
 log = get_logger(__name__)
+
+#: EventBus topic published by :class:`WatcherManager`.
+WATCHER_EVENT = "watcher.file_change"
 
 
 class WatcherManager(FileWatcher):
@@ -39,9 +47,16 @@ class WatcherManager(FileWatcher):
         Absolute path to the workspace root (parent of backend/, app/, …).
     settings:
         Watcher configuration from :class:`~core.config.Settings`.
+    bus:
+        :class:`~core.EventBus` instance.  When provided, each debounced
+        :class:`FileChangeEvent` is published as ``watcher.file_change``
+        directly from this class — no bridging adaptor is needed in
+        ``bootstrap.py``.
     on_event:
-        Optional callback for debounced events.  When omitted, events are
-        logged at INFO level — sufficient for Module 2.
+        Optional *additional* callback invoked **after** the bus publish.
+        Kept for backward-compatibility with tests and standalone use.
+        When neither *bus* nor *on_event* is supplied, events are logged
+        at INFO level only.
     """
 
     name = "watcher"
@@ -51,11 +66,13 @@ class WatcherManager(FileWatcher):
         project_root: Path,
         settings: WatcherSettings,
         *,
+        bus: "EventBus | None" = None,
         on_event: Callable[[FileChangeEvent], None] | None = None,
     ) -> None:
         self._project_root = project_root.resolve()
         self._settings = settings
-        self._on_event = on_event or self._default_on_event
+        self._bus = bus
+        self._on_event = on_event  # may be None — handled in _dispatch_event
 
         self._path_filter = PathFilter(settings, self._project_root)
         self._tracker = FileTracker(
@@ -164,10 +181,29 @@ class WatcherManager(FileWatcher):
         return resolved
 
     def _dispatch_event(self, event: FileChangeEvent) -> None:
-        try:
-            self._on_event(event)
-        except Exception:  # noqa: BLE001
-            log.exception("Watcher event callback failed for %s", event)
+        """Publish the event on the EventBus and/or call the legacy callback.
+
+        Priority order:
+        1. If a :class:`~core.EventBus` was injected, publish on it.
+        2. If an ``on_event`` callback was provided, call it.
+        3. If neither, fall back to a plain INFO log.
+        """
+        published = False
+        if self._bus is not None:
+            try:
+                self._bus.publish(WATCHER_EVENT, {"event": event})
+                published = True
+            except Exception:  # noqa: BLE001
+                log.exception("EventBus publish failed for %s", event)
+
+        if self._on_event is not None:
+            try:
+                self._on_event(event)
+            except Exception:  # noqa: BLE001
+                log.exception("Watcher event callback failed for %s", event)
+        elif not published:
+            # Neither bus nor callback — log so events are never silently dropped.
+            self._default_on_event(event)
 
     @staticmethod
     def _default_on_event(event: FileChangeEvent) -> None:

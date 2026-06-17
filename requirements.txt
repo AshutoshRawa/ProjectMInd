@@ -10,6 +10,13 @@ ollama>=0.3,<1.0
 Jinja2>=3.1,<4.0
 networkx>=3.0,<4.0   # Module 6: Graph Engine
 
+# Module 7: Semantic Memory Engine
+sentence-transformers>=3.0,<4.0
+chromadb>=0.5,<1.0
+
+# Module 9: Git Intelligence Engine
+gitpython>=3.1,<4.0
+
 # -----------------------------------------------------------------------------
 # Development / test extras (install with `pip install -r requirements-dev.txt`
 # once that file is created — for now they live here behind a marker so a

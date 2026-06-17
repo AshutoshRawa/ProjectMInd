@@ -17,7 +17,7 @@ from typing import Any
 
 from analysis.analysis_types import FileAnalysis
 from docs.changelog import ChangelogEntry, format_changelog
-from docs.frontmatter import build_frontmatter
+from docs.frontmatter import build_analysis_frontmatter
 from docs.template_engine import render_doc_template
 
 
@@ -40,7 +40,7 @@ def generate(
     str
         Complete markdown string: YAML front-matter + structured body.
     """
-    frontmatter = build_frontmatter(analysis)
+    frontmatter = build_analysis_frontmatter(analysis)
 
     # --- AI extended description (best-effort, non-critical) ---
     extended_description = _ai_extended_description(analysis)

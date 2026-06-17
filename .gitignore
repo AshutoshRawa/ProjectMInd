@@ -51,3 +51,9 @@ vault/.obsidian/cache
 # User override / runtime config — never commit.
 config/config.yaml
 config/runtime.yaml
+
+# ChromaDB
+.chroma/
+
+# Env
+.env

@@ -31,15 +31,12 @@ from pathlib import Path
 from typing import Any
 
 from analysis.analysis_types import FileAnalysis
-from core import EventBus, GraphBuilder, get_config, get_logger
+from core import EventBus, GraphBuilder, get_logger
 from graph.graph_analyzer import find_orphans
 from graph.graph_builder import GraphEngine
 from graph.graph_state import GraphStateManager
 
 log = get_logger(__name__)
-
-_DEFAULT_STATE_FILENAME = "graph_state.json"
-
 
 class Module6GraphEngine(GraphBuilder):
     """Long-lived graph service for Module 6.
@@ -62,7 +59,7 @@ class Module6GraphEngine(GraphBuilder):
         self,
         *,
         bus: EventBus,
-        state_path: str | Path | None = None,
+        state_path: str | Path,
         input_event: str = "analysis.file_analyzed",
         output_event: str = "graph.graph_updated",
         auto_save_interval: int = 10,
@@ -70,15 +67,6 @@ class Module6GraphEngine(GraphBuilder):
         self._bus = bus
         self._input_event = input_event
         self._output_event = output_event
-
-        # Resolve state file path.
-        if state_path is None:
-            try:
-                cfg = get_config()
-                project_root = Path(cfg.vault.path).parent
-            except Exception:  # noqa: BLE001
-                project_root = Path.cwd()
-            state_path = project_root / _DEFAULT_STATE_FILENAME
 
         self._engine = GraphEngine()
         self._state_mgr = GraphStateManager(state_path, auto_save_interval=auto_save_interval)
@@ -90,6 +78,20 @@ class Module6GraphEngine(GraphBuilder):
         self._started = False
 
     # ------------------------------------------------------------------
+    # Public graph accessor
+    # ------------------------------------------------------------------
+
+    @property
+    def graph(self):  # -> networkx.DiGraph
+        """Return the live in-memory dependency graph.
+
+        Provided so callers (e.g. :mod:`core.bootstrap`) can access the
+        underlying :class:`networkx.DiGraph` without reaching into the
+        private ``_engine`` attribute.
+        """
+        return self._engine.graph
+
+    # ------------------------------------------------------------------
     # Service lifecycle
     # ------------------------------------------------------------------
 
@@ -98,9 +100,9 @@ class Module6GraphEngine(GraphBuilder):
             return
         self._started = True
 
-        # Restore persisted graph.
+        # Restore persisted graph via the public API.
         restored = self._state_mgr.load_graph()
-        self._engine._g = restored  # type: ignore[attr-defined]  # deliberate internal access
+        self._engine.replace_graph(restored)
 
         self._stop_event.clear()
         self._queue = queue.Queue()

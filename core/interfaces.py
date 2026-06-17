@@ -3,11 +3,11 @@ core/interfaces.py
 ==================
 Foundational abstract interfaces used across ProjectMind.
 
-Future modules (watcher, ai, analysis, memory, graph, …) will provide
-concrete implementations of these contracts.  Keeping the abstractions
-here — rather than buried inside their owning packages — means any
-module can depend on an interface without pulling in another module's
-implementation.
+Future modules (watcher, ai, analysis, docs, memory, graph, obsidian,
+git, intelligence) provide concrete implementations of these contracts.
+Keeping the abstractions here — rather than buried inside their owning
+packages — means any module can depend on an interface without pulling in
+another module's implementation.
 
 Design rules
 ------------
@@ -117,18 +117,30 @@ class AIClient(Service):
 
 
 class Analyzer(Service):
-    """Will be implemented by ``analysis/`` in Module 4."""
+    """Implemented by :class:`analysis.analyzer_engine.Module4AnalyzerEngine` (M4)."""
 
     name = "analysis"
 
 
+class DocumentationGenerator(Service):
+    """
+    Implemented by :class:`docs.doc_engine.Module5DocEngine` (M5).
+
+    Documentation generators subscribe to ``analysis.file_analyzed`` events
+    and produce human-readable documentation artefacts.  They do **not**
+    perform code analysis themselves.
+    """
+
+    name = "docs"
+
+
 class MemoryEngine(Service):
-    """Will be implemented by ``memory/`` in Module 5."""
+    """Implemented by :class:`memory.memory_updater.Module7MemoryUpdater` (M7)."""
 
     name = "memory"
 
 
 class GraphBuilder(Service):
-    """Will be implemented by ``graph/`` in Module 6."""
+    """Implemented by :class:`graph.graph_engine.Module6GraphEngine` (M6)."""
 
     name = "graph"

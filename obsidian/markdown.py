@@ -37,7 +37,7 @@ _FRONTMATTER_RE = re.compile(
 # Build
 # ---------------------------------------------------------------------------
 
-def build_frontmatter(data: dict[str, Any]) -> str:
+def build_note_frontmatter(data: dict[str, Any]) -> str:
     """
     Serialise *data* into an Obsidian-compatible YAML front-matter block.
 
@@ -62,7 +62,7 @@ def compose_note(frontmatter: dict[str, Any], body: str) -> str:
     Always emits exactly one blank line between the YAML fence and the
     body for readability.
     """
-    fm_block = build_frontmatter(frontmatter)
+    fm_block = build_note_frontmatter(frontmatter)
     body_clean = body.strip("\n")
     if fm_block:
         # Single blank line between fence and body, single trailing newline.

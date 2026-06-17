@@ -5,14 +5,16 @@ Tests for Module 5 — Documentation Engine.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from analysis import Module4AnalyzerEngine
 from analysis.analysis_types import FileAnalysis, FunctionInfo
-from core import EventBus
+from core import AnalysisSettings, EventBus
 from docs import (
     Module5DocEngine,
-    build_frontmatter,
+    build_analysis_frontmatter,
     generate,
     render_doc_template,
 )
@@ -26,6 +28,7 @@ from docs.changelog import (
     diff_analyses,
     format_changelog,
 )
+from watcher import ChangeKind, FileChangeEvent
 
 
 # ---------------------------------------------------------------------------
@@ -81,10 +84,10 @@ def _wait_for_result(results: list[dict[str, object]], timeout: float = 3.0) -> 
 # frontmatter.py
 # ---------------------------------------------------------------------------
 
-def test_build_frontmatter_format() -> None:
+def test_build_analysis_frontmatter_format() -> None:
     """Verify exact YAML format with --- fences."""
     analysis = _make_analysis()
-    fm = build_frontmatter(analysis)
+    fm = build_analysis_frontmatter(analysis)
 
     assert fm.startswith("---\n")
     assert fm.endswith("---\n")
@@ -98,10 +101,10 @@ def test_build_frontmatter_format() -> None:
     assert "tags:" in fm
 
 
-def test_build_frontmatter_tags_derived() -> None:
+def test_build_analysis_frontmatter_tags_derived() -> None:
     """Verify tags are derived from language, path components, and always include projectmind."""
     analysis = _make_analysis(path="backend/api/handlers.py", language="python")
-    fm = build_frontmatter(analysis)
+    fm = build_analysis_frontmatter(analysis)
 
     assert "python" in fm
     assert "backend" in fm
@@ -304,3 +307,63 @@ def test_doc_engine_subscribes_and_publishes(monkeypatch) -> None:
     assert "# utils.py" in payload["markdown_content"]
     assert isinstance(payload["frontmatter"], str)
     assert "---" in payload["frontmatter"]
+
+
+def test_analysis_to_docs_eventbus_pipeline(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Smoke-test the real M4 worker -> EventBus -> M5 worker pipeline."""
+    target = tmp_path / "pipeline_sample.py"
+    target.write_text(
+        "import json\n\n"
+        "def serialize(value):\n"
+        "    return json.dumps(value)\n",
+        encoding="utf-8",
+    )
+
+    class FakeAI:
+        def complete(self, prompt_name, _variables):  # noqa: ANN001
+            if prompt_name == "code_analysis":
+                return (
+                    '{"purpose": "Serialize values as JSON.", '
+                    '"suggestions": ["Add a return type annotation."]}'
+                )
+            return ""
+
+    fake_ai = FakeAI()
+    monkeypatch.setattr("analysis.analyzer_engine.get_ai", lambda: fake_ai)
+    monkeypatch.setattr("ai.get_ai", lambda: fake_ai)
+
+    bus = EventBus()
+    results: list[dict[str, object]] = []
+    bus.subscribe("docs.doc_updated", lambda payload: results.append(payload))
+
+    analyzer = Module4AnalyzerEngine(
+        bus=bus,
+        settings=AnalysisSettings(enabled=True, max_file_size=524_288),
+    )
+    docs_engine = Module5DocEngine(bus=bus)
+
+    docs_engine.start()
+    analyzer.start()
+    try:
+        bus.publish(
+            "watcher.file_change",
+            {
+                "event": FileChangeEvent(
+                    path=target,
+                    kind=ChangeKind.MODIFIED,
+                    timestamp="2026-06-15T00:00:00Z",
+                )
+            },
+        )
+        payload = _wait_for_result(results)
+    finally:
+        analyzer.stop()
+        docs_engine.stop()
+
+    assert payload["path"] == str(target)
+    assert "Serialize values as JSON." in payload["markdown_content"]
+    assert "`serialize`" in payload["markdown_content"]
+    assert f"file: {target}" in payload["frontmatter"]

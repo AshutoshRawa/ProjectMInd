@@ -19,7 +19,7 @@ from analysis.analysis_types import FileAnalysis
 from analysis.complexity import file_complexity_score
 
 
-def build_frontmatter(analysis: FileAnalysis) -> str:
+def build_analysis_frontmatter(analysis: FileAnalysis) -> str:
     """Build a YAML front-matter block from an analysis result.
 
     Returns

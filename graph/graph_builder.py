@@ -52,6 +52,23 @@ class GraphEngine:
         """The raw :class:`networkx.DiGraph`.  Treat as *read-only*."""
         return self._g
 
+    def replace_graph(self, g: nx.DiGraph) -> None:
+        """Replace the internal graph with *g*.
+
+        Used by :class:`~graph.graph_engine.Module6GraphEngine` to restore a
+        previously persisted graph state on startup.  Prefer this over direct
+        attribute access to ``_g``.
+
+        Parameters
+        ----------
+        g:
+            A :class:`networkx.DiGraph` instance to adopt as the new graph.
+            The caller is responsible for ensuring *g* is a valid dependency
+            graph (e.g. loaded from :class:`~graph.state_manager.GraphStateManager`).
+        """
+        self._g = g
+        log.debug("[graph_engine] internal graph replaced (%d nodes)", g.number_of_nodes())
+
     # ------------------------------------------------------------------
     # Mutation — nodes
     # ------------------------------------------------------------------

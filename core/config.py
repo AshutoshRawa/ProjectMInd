@@ -139,9 +139,11 @@ class AnalysisSettings:
 
 @dataclass
 class MemorySettings:
-    """Memory engine settings (placeholder for Module 5)."""
+    """Memory engine settings (Module 7 — Semantic Memory Engine)."""
     enabled: bool = False
     retention_days: int = 90
+    chroma_db_path: str = ".chroma"  # path to ChromaDB persistent store
+    embedding_model: str = "all-MiniLM-L6-v2"  # sentence-transformers model name
 
 
 @dataclass
@@ -149,6 +151,36 @@ class GraphSettings:
     """Graph generation settings (placeholder for Module 6)."""
     enabled: bool = False
     format: str = "markdown-links"
+
+
+@dataclass
+class DocsSettings:
+    """Documentation generator settings (Module 5 — Docs Engine)."""
+    enabled: bool = False
+    max_changelog_entries: int = 5
+
+
+@dataclass
+class ObsidianSettings:
+    """Obsidian vault writer settings (Module 8 — Obsidian Engine)."""
+    enabled: bool = False
+
+
+@dataclass
+class GitSettings:
+    """Git commit monitor settings (Module 9 — Git Integration Engine)."""
+    enabled: bool = False
+    repo_path: str = "."   # path to the git repo root (default: project root)
+    poll_interval_seconds: float = 60.0
+
+
+@dataclass
+class IntelligenceSettings:
+    """Autonomous intelligence settings (Module 10 — Intelligence Engine)."""
+    enabled: bool = False
+    cycle_interval_seconds: int = 3600  # how often to run the background cycle
+    min_severity: str = "medium"        # minimum pattern severity to report
+    store_path: str = ".suggestions"    # directory for persisted suggestions
 
 
 @dataclass
@@ -170,8 +202,12 @@ class Settings:
     ai: AISettings = field(default_factory=AISettings)
     watcher: WatcherSettings = field(default_factory=WatcherSettings)
     analysis: AnalysisSettings = field(default_factory=AnalysisSettings)
-    memory: MemorySettings = field(default_factory=MemorySettings)
+    docs: DocsSettings = field(default_factory=DocsSettings)
     graph: GraphSettings = field(default_factory=GraphSettings)
+    memory: MemorySettings = field(default_factory=MemorySettings)
+    obsidian: ObsidianSettings = field(default_factory=ObsidianSettings)
+    git: GitSettings = field(default_factory=GitSettings)
+    intelligence: IntelligenceSettings = field(default_factory=IntelligenceSettings)
 
 
 # ---------------------------------------------------------------------------
@@ -458,6 +494,8 @@ class ConfigLoader:
         memory = MemorySettings(
             enabled=_as_bool(mem_raw.get("enabled", False)),
             retention_days=int(mem_raw.get("retention_days", 90)),
+            chroma_db_path=mem_raw.get("chroma_db_path", ".chroma"),
+            embedding_model=mem_raw.get("embedding_model", "all-MiniLM-L6-v2"),
         )
 
         # --- graph -------------------------------------------------------
@@ -465,6 +503,36 @@ class ConfigLoader:
         graph = GraphSettings(
             enabled=_as_bool(graph_raw.get("enabled", False)),
             format=graph_raw.get("format", "markdown-links"),
+        )
+
+        # --- docs --------------------------------------------------------
+        docs_raw = _get("docs", {})
+        docs = DocsSettings(
+            enabled=_as_bool(docs_raw.get("enabled", False)),
+            max_changelog_entries=int(docs_raw.get("max_changelog_entries", 5)),
+        )
+
+        # --- obsidian ----------------------------------------------------
+        obs_raw = _get("obsidian", {})
+        obsidian = ObsidianSettings(
+            enabled=_as_bool(obs_raw.get("enabled", False)),
+        )
+
+        # --- git ---------------------------------------------------------
+        git_raw = _get("git", {})
+        git = GitSettings(
+            enabled=_as_bool(git_raw.get("enabled", False)),
+            repo_path=git_raw.get("repo_path", "."),
+            poll_interval_seconds=float(git_raw.get("poll_interval_seconds", 60.0)),
+        )
+
+        # --- intelligence ------------------------------------------------
+        intel_raw = _get("intelligence", {})
+        intelligence = IntelligenceSettings(
+            enabled=_as_bool(intel_raw.get("enabled", False)),
+            cycle_interval_seconds=int(intel_raw.get("cycle_interval_seconds", 3600)),
+            min_severity=intel_raw.get("min_severity", "medium"),
+            store_path=intel_raw.get("store_path", ".suggestions"),
         )
 
         return Settings(
@@ -475,8 +543,12 @@ class ConfigLoader:
             ai=ai,
             watcher=watcher,
             analysis=analysis,
-            memory=memory,
+            docs=docs,
             graph=graph,
+            memory=memory,
+            obsidian=obsidian,
+            git=git,
+            intelligence=intelligence,
         )
 
 

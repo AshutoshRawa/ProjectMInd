@@ -8,19 +8,19 @@ import pytest
 
 from core.exceptions import VaultError
 from obsidian.markdown import (
-    build_frontmatter,
+    build_note_frontmatter,
     compose_note,
     parse_frontmatter,
 )
 
 
-def test_build_frontmatter_empty_returns_empty_string() -> None:
-    assert build_frontmatter({}) == ""
+def test_build_note_frontmatter_empty_returns_empty_string() -> None:
+    assert build_note_frontmatter({}) == ""
 
 
-def test_build_frontmatter_round_trip() -> None:
+def test_build_note_frontmatter_round_trip() -> None:
     data = {"title": "Hello", "tags": ["a", "b"], "status": "draft"}
-    block = build_frontmatter(data)
+    block = build_note_frontmatter(data)
     assert block.startswith("---\n") and block.rstrip().endswith("---")
     note = compose_note(data, "# body\n\ntext")
     fm, body = parse_frontmatter(note)

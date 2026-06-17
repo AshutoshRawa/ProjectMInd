@@ -262,3 +262,29 @@ def _register_defaults(registry: PromptRegistry) -> None:
         ),
         description="Suggest code improvements without applying them.",
     ))
+
+    registry.register(PromptTemplate(
+        name="refactor_suggestion_v2",
+        version="1.0",
+        system_prompt=(
+            f"{_SYSTEM_BASE}\n\n"
+            "You are a senior code reviewer analysing detected anti-patterns.\n"
+            "Your job is to produce ONE concrete, actionable refactoring suggestion.\n\n"
+            "Rules:\n"
+            "- Describe WHAT to change and WHY.\n"
+            "- Include a brief code sketch where it helps.\n"
+            "- Do NOT rewrite the entire file — focus on the highest-impact change.\n"
+            "- NEVER suggest applying changes automatically — you are advisory only.\n"
+            "- Learn from the past examples provided: repeat what worked, avoid what was rejected."
+        ),
+        user_template=(
+            "An anti-pattern was detected in the codebase.\n\n"
+            "**Pattern details:**\n{pattern}\n\n"
+            "**Past ACCEPTED suggestions (positive examples):**\n{past_accepted}\n\n"
+            "**Past REJECTED suggestions (negative examples — avoid these):**\n{past_rejected}\n\n"
+            "Provide a single, concrete refactoring suggestion for the detected pattern above."
+        ),
+        description=(
+            "Pattern-aware refactoring suggestion with few-shot feedback loop (Module 10)."
+        ),
+    ))

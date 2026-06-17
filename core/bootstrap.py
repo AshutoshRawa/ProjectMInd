@@ -32,7 +32,10 @@ from core import (
     Settings,
     AIClient,
     Analyzer,
+    DocumentationGenerator,
     FileWatcher,
+    GraphBuilder,
+    MemoryEngine,
     get_logger,
     ensure_dir,
     logger as logger_module,
@@ -159,16 +162,10 @@ def bootstrap(
         if settings.watcher.enabled:
             from watcher import WatcherManager
 
-            def _on_watcher_event(event: object) -> None:
-                # Keep Module 2 logging; then publish via EventBus for all
-                # downstream modules (Module 3 + later Modules).
-                WatcherManager._default_on_event(event)  # type: ignore[arg-type]
-                event_bus.publish("watcher.file_change", {"event": event})
-
             watcher = WatcherManager(
                 project_root=project_root,
                 settings=settings.watcher,
-                on_event=_on_watcher_event,
+                bus=event_bus,  # publishes watcher.file_change directly
             )
             registry.register(FileWatcher, watcher)
 
@@ -181,6 +178,81 @@ def bootstrap(
                 settings=settings.analysis,
             )
             registry.register(Analyzer, analysis_engine)
+
+        # 5e. Docs (Module 5) — subscribe: analysis.file_analyzed
+        if settings.docs.enabled:
+            from docs import Module5DocEngine
+
+            docs_engine = Module5DocEngine(bus=event_bus)
+            registry.register(DocumentationGenerator, docs_engine)
+
+        # 5f. Graph (Module 6) — subscribe: analysis.file_analyzed
+        if settings.graph.enabled:
+            from graph import Module6GraphEngine
+
+            graph_engine = Module6GraphEngine(
+                bus=event_bus,
+                state_path=project_root / "graph_state.json",
+            )
+            registry.register(GraphBuilder, graph_engine)
+
+        # 5g. Memory (Module 7) — subscribe: analysis.file_analyzed
+        if settings.memory.enabled:
+            from memory import MemoryUpdater
+            from memory.memory_store import MemoryStore
+
+            mem_store_path = _resolve_path(project_root, settings.memory.chroma_db_path)
+            memory_store = MemoryStore(persist_directory=str(mem_store_path))
+            memory_updater = MemoryUpdater(bus=event_bus, store=memory_store)
+            registry.register(MemoryEngine, memory_updater)
+            registry.register("memory_store", memory_store)
+
+        # 5h. Obsidian (Module 8) — subscribe: docs.doc_updated + graph.graph_updated
+        if settings.obsidian.enabled:
+            from obsidian import ObsidianEngine
+
+            mem_store = registry.get("memory_store") if settings.memory.enabled else None
+            vault_dir = _resolve_path(project_root, settings.paths.vault_dir)
+            obsidian_engine = ObsidianEngine(
+                bus=event_bus,
+                vault_root=vault_dir,
+                memory_store=mem_store,
+            )
+            registry.register("obsidian", obsidian_engine)
+
+        # 5i. Git (Module 9) — monitor commits, subscribe: git.commit
+        if settings.git.enabled:
+            from git_integration import GitEngine
+
+            ai_client = registry.get(AIClient)
+            mem_store = registry.get("memory_store") if settings.memory.enabled else None
+            git_repo = _resolve_path(project_root, settings.git.repo_path)
+            git_engine = GitEngine(
+                bus=event_bus,
+                ai=ai_client,
+                memory_store=mem_store,
+                repo_path=str(git_repo),
+                poll_interval=settings.git.poll_interval_seconds,
+            )
+            registry.register("git", git_engine)
+
+        # 5j. Intelligence (Module 10) — subscribe: graph.graph_updated
+        if settings.intelligence.enabled:
+            from intelligence import IntelligenceEngine, SuggestionStore
+
+            graph_svc = registry.get(GraphBuilder) if settings.graph.enabled else None
+            mem_store = registry.get("memory_store") if settings.memory.enabled else None
+            store_path = _resolve_path(project_root, settings.intelligence.store_path)
+            suggestion_store = SuggestionStore(store_path=store_path)
+            intel_engine = IntelligenceEngine(
+                bus=event_bus,
+                graph=graph_svc.graph if graph_svc else __import__("networkx").DiGraph(),
+                analyses=[],  # populated at runtime via analysis events
+                store=suggestion_store,
+                memory_store=mem_store,
+                cycle_interval=settings.intelligence.cycle_interval_seconds,
+            )
+            registry.register("intelligence", intel_engine)
 
         # 6. Build the Application handle -------------------------------------
         app = Application(
@@ -200,6 +272,24 @@ def bootstrap(
         if settings.analysis.enabled:
             analysis_svc = registry.get(Analyzer)
             app.on_shutdown(analysis_svc.stop)
+
+        if settings.docs.enabled:
+            app.on_shutdown(registry.get(DocumentationGenerator).stop)
+
+        if settings.graph.enabled:
+            app.on_shutdown(registry.get(GraphBuilder).stop)
+
+        if settings.memory.enabled:
+            app.on_shutdown(registry.get(MemoryEngine).stop)
+
+        if settings.obsidian.enabled:
+            app.on_shutdown(registry.get("obsidian").stop)
+
+        if settings.git.enabled:
+            app.on_shutdown(registry.get("git").stop)
+
+        if settings.intelligence.enabled:
+            app.on_shutdown(registry.get("intelligence").stop)
 
         # 8. Signal handlers (optional) ---------------------------------------
         if install_signal_handlers:

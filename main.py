@@ -11,6 +11,7 @@ Module 1 bootstraps config, logging, vault, and the service registry.
 Module 2 adds an optional filesystem watcher (``watcher.enabled: true``).
 Module 3 connects to Ollama/Qwen at ``ai.ollama_host`` (requires a running
 Ollama server and a pulled Qwen model).
+Modules 4–10 are enabled via their respective ``<module>.enabled: true`` flags.
 """
 
 from __future__ import annotations
@@ -18,7 +19,11 @@ from __future__ import annotations
 import sys
 
 from core.bootstrap import bootstrap
-from core import AIClient, Analyzer, FileWatcher, get_logger
+from core import (
+    AIClient, Analyzer, DocumentationGenerator,
+    FileWatcher, GraphBuilder, MemoryEngine,
+    get_logger,
+)
 from core import ProjectMindError
 
 
@@ -68,7 +73,31 @@ def main() -> int:
         if settings.analysis.enabled:
             analysis = app.registry.get(Analyzer)
             analysis.start()
-            log.info(" Analysis     : enabled")
+            log.info(" Analysis     : enabled (M4)")
+
+        if settings.docs.enabled:
+            app.registry.get(DocumentationGenerator).start()
+            log.info(" Docs         : enabled (M5)")
+
+        if settings.graph.enabled:
+            app.registry.get(GraphBuilder).start()
+            log.info(" Graph        : enabled (M6)")
+
+        if settings.memory.enabled:
+            app.registry.get(MemoryEngine).start()
+            log.info(" Memory       : enabled (M7)")
+
+        if settings.obsidian.enabled:
+            app.registry.get("obsidian").start()
+            log.info(" Obsidian     : enabled (M8)")
+
+        if settings.git.enabled:
+            app.registry.get("git").start()
+            log.info(" Git          : enabled (M9)")
+
+        if settings.intelligence.enabled:
+            app.registry.get("intelligence").start()
+            log.info(" Intelligence : enabled (M10)")
 
         if settings.watcher.enabled:
             watcher = app.registry.get(FileWatcher)

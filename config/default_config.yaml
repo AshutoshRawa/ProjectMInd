@@ -143,14 +143,54 @@ analysis:
   max_file_size: 524288        # 512 KB
 
 # ---------------------------------------------------------------------------
-# Memory / graph (placeholder — activated in Module 5+)
+# Memory / graph (Module 7 — Semantic Memory Engine)
 # ---------------------------------------------------------------------------
 memory:
   enabled: false
   # Rolling window: how many days of context to retain as "active" memory
   retention_days: 90
+  # Path (relative to project root) where ChromaDB persists its vector store
+  chroma_db_path: ".chroma"
+  # Sentence-transformers model name used for embedding (must be installed)
+  embedding_model: "all-MiniLM-L6-v2"
 
 graph:
   enabled: false
   # Output format for generated Obsidian graph data
   format: "markdown-links"
+
+# ---------------------------------------------------------------------------
+# Documentation generator — Module 5
+# ---------------------------------------------------------------------------
+docs:
+  enabled: false
+  # Maximum number of changelog entries shown per file's documentation note
+  max_changelog_entries: 5
+
+# ---------------------------------------------------------------------------
+# Obsidian vault writer — Module 8
+# ---------------------------------------------------------------------------
+obsidian:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Git integration — Module 9
+# ---------------------------------------------------------------------------
+git:
+  enabled: false
+  # Path to the git repository root (relative to project root, or absolute)
+  repo_path: "."
+  # How often (seconds) to poll for new commits when no event is received
+  poll_interval_seconds: 60.0
+
+# ---------------------------------------------------------------------------
+# Autonomous intelligence — Module 10
+# ---------------------------------------------------------------------------
+intelligence:
+  enabled: false
+  # How often (seconds) the background analysis cycle runs
+  cycle_interval_seconds: 3600
+  # Minimum pattern severity to surface as a suggestion: low | medium | high
+  min_severity: "medium"
+  # Directory (relative to project root) where suggestions are persisted
+  store_path: ".suggestions"

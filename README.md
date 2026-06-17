@@ -16,7 +16,10 @@
 | 4 | Code Analysis | ✅ | AST extraction, complexity, dependency mapping |
 | 5 | Documentation Engine | ✅ | Markdown generation with frontmatter & changelogs |
 | 6 | Graph Engine | ✅ | Incremental dependency graph — orphans, hubs, cycles, hotspots |
-| 7+ | Memory, Git, Intelligence | 🔜 | Long-term memory, git parsing, synthesis |
+| 7 | Memory Engine | ✅ | Semantic memory with ChromaDB — chunking, embedding, search |
+| 8 | Obsidian Engine | ✅ | Vault writer — links, index, note builder, async queue |
+| 9 | Git Integration | ✅ | Commit monitor, AI summariser, git memory store |
+| 10 | Intelligence Engine | ✅ | Autonomous pattern detection, refactor suggestions, codebase Q&A |
 
 ---
 
@@ -27,11 +30,12 @@ git clone <your-fork> ProjectMind && cd ProjectMind
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Optional: enable watcher + analysis
+# Copy and edit the example config (enable the modules you want)
 cp config/config.example.yaml config/config.yaml
-# Edit config.yaml: set watcher.enabled: true, analysis.enabled: true
 
-ollama pull qwen2.5-coder:7b   # required for AI features
+# Pull the required Ollama model
+ollama pull qwen2.5-coder:14b
+
 python main.py
 ```
 
@@ -41,6 +45,19 @@ Override any config via environment variables:
 PROJECTMIND_LOGGING__LEVEL=DEBUG PROJECTMIND_WATCHER__ENABLED=true python main.py
 ```
 
+Enable modules incrementally in `config/config.yaml`:
+
+```yaml
+watcher:    { enabled: true }
+analysis:   { enabled: true }
+docs:       { enabled: true }
+graph:      { enabled: true }
+memory:     { enabled: true }
+obsidian:   { enabled: true }
+git:        { enabled: true }
+intelligence: { enabled: true }
+```
+
 ---
 
 ## Architecture
@@ -48,19 +65,41 @@ PROJECTMIND_LOGGING__LEVEL=DEBUG PROJECTMIND_WATCHER__ENABLED=true python main.p
 ```
 main.py → core.bootstrap
               │
-    ┌─────────┼──────────┐
-    ▼         ▼          ▼
- config    logger    vault (Obsidian)
+    ┌─────────┼──────────────────────────┐
+    ▼         ▼                          ▼
+ config    logger                vault (Obsidian)
               │
          ServiceRegistry
               ▲
-    ┌────┬────┼────┬─────┐
-    │    │    │    │     │
-  M2   M3   M4   M5   M6+
-watcher  ai  analysis docs  ...
+    ┌────┬────┼────┬─────┬────┬────┬────┐
+    │    │    │    │     │    │    │    │
+   M2   M3   M4   M5   M6   M7   M8  M9/M10
+watcher ai analysis docs graph mem obsidian intel
 ```
 
-**Rules:** All inter-module communication through `EventBus` only. Every module imports only from another module's `__init__.py`. All AI calls go through `get_ai().complete('prompt_name', variables)`.
+**Rules:**
+- All inter-module communication through `EventBus` only
+- Every module imports only from another module's `__init__.py`
+- All AI calls go through `get_ai().complete('prompt_name', variables)`
+
+---
+
+## EventBus Event Flow
+
+```
+watcher.file_change
+    └─► M4: analysis.file_analyzed
+            ├─► M5: docs.doc_updated
+            │       └─► M8: obsidian.note_written
+            ├─► M6: graph.graph_updated
+            │       └─► M8: (graph links in notes)
+            │       └─► M10: intelligence.suggestions_ready
+            └─► M7: (memory chunks upserted)
+
+git.commit
+    └─► M9: git.commit_summarized
+            └─► M7: (commit stored in memory)
+```
 
 ---
 
@@ -112,8 +151,8 @@ Single interface to local Ollama (Qwen models):
 # config/config.yaml
 ai:
   ollama_host: "http://localhost:11434"
-  default_model: "qwen2.5-coder:7b"
-  fallback_model: "qwen2.5:7b"
+  default_model: "qwen2.5-coder:14b"
+  fallback_model: "qwen2.5-coder:14b"
   timeout: 120
   max_tokens: 4096
   temperature: 0.2
@@ -225,63 +264,12 @@ docs/
 | `IMPORTS_CHANGED` | Import list additions or removals |
 | `AI_SUMMARY_CHANGED` | AI summary text differs |
 
-### Jinja2 templates (stored as string constants)
-
-| Template | Purpose |
-|----------|---------|
-| `file_doc` | Full document layout (used by `generate()`) |
-| `function_table` | Standalone function table |
-| `anti_patterns` | Standalone anti-patterns list |
-| `dependencies` | Standalone dependencies list |
-| `changelog` | Standalone changelog block |
-
 ### EventBus contract
 
 | Direction | Event | Payload |
 |-----------|-------|---------|
 | Subscribe | `analysis.file_analyzed` | `{file_path, analysis}` |
 | Publish | `docs.doc_updated` | `{path, markdown_content, frontmatter}` |
-
-### AI usage
-
-`get_ai().complete('doc_generation', {...})` is called **once per file** for an optional extended description paragraph only. All document structure (sections, tables, changelog) is deterministic — never AI-generated. AI failures are silently swallowed and never break doc generation.
-
-### Example output
-
-```markdown
----
-file: src/utils.py
-language: python
-lines: 142
-complexity: 3.4
-last_analyzed: 2025-01-15T14:32:00
-tags: [python, src, utils, projectmind]
----
-
-# utils.py
-
-> Utility module for JSON parsing and serialization.
-
-## Functions
-
-| Name | Params | Complexity | Docstring? |
-|------|--------|------------|------------|
-| `parse` | data, strict | 4 | ✓ |
-| `dump` | obj | 1 | ✗ |
-
-## Anti-Patterns
-
-- Missing type annotations on dump()
-
-## Dependencies
-
-- `json`
-- `pathlib.Path`
-
-## Changelog
-
-- **[FUNCTION_ADDED]** Function `parse` added _2025-01-15 14:32_
-```
 
 ---
 
@@ -312,23 +300,6 @@ graph/
 | `get_neighbors` | `(path: str) -> list[str]` | Direct import successors of `path` |
 | `get_related_files` | `(path: str, depth=2) -> list[str]` | BFS reachable files within `depth` hops |
 
-Node attributes stored per file:
-
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `language` | `str` | Detected language |
-| `complexity` | `float` | Weighted cyclomatic average |
-| `function_count` | `int` | Number of functions |
-| `last_analyzed` | `float` | Unix timestamp of last analysis |
-
-#### `GraphStateManager` — `graph/graph_state.py`
-
-| Symbol | Description |
-|--------|-------------|
-| `save_graph(graph, path)` | Persist graph as node-link JSON, atomically (`.tmp` → rename) |
-| `load_graph(path) -> DiGraph` | Restore graph; returns fresh empty graph on missing/corrupt file |
-| `record_update(graph) -> bool` | Increment counter; auto-saves every **10 updates**, returns `True` when triggered |
-
 #### `graph_analyzer.py` — pure, side-effect-free functions
 
 | Function | Returns | Description |
@@ -345,21 +316,147 @@ Node attributes stored per file:
 | Subscribe | `analysis.file_analyzed` | `{file_path, analysis}` |
 | Publish | `graph.graph_updated` | `{updated_node, edges_added, edges_removed, stats}` |
 
-Published `stats` shape:
-
-```python
-{
-    "node_count":   int,   # total nodes in graph
-    "edge_count":   int,   # total edges
-    "orphan_count": int,   # isolated nodes
-}
-```
-
 ### Persistence
 
-The graph is serialised to `graph_state.json` using networkx's **node-link format**.  
-Auto-save fires every **10 updates** (not on every change). `stop()` always forces a final save.  
-On load failure the engine starts with a fresh empty graph and logs a warning — never crashes.
+Graph serialised to `graph_state.json` (networkx node-link format). Auto-save every **10 updates**; `stop()` forces a final save. Load failure starts a fresh empty graph — never crashes.
+
+---
+
+## Module 7 — Memory Engine
+
+Semantic long-term memory backed by **ChromaDB** and `sentence-transformers`:
+
+- **Chunker** — splits `FileAnalysis` into overlapping text chunks with rich metadata
+- **Embedder** — `all-MiniLM-L6-v2` embeddings via `sentence-transformers`
+- **MemoryStore** — ChromaDB collection wrapper with upsert, delete, and similarity search
+- **MemoryUpdater** — EventBus service: subscribes to `analysis.file_analyzed`, upserts chunks
+- **SemanticSearch** — `search(query, top_k)` returns ranked `MemoryChunk` results
+
+```
+memory/
+├── chunker.py          # split FileAnalysis → list[MemoryChunk]
+├── embedder.py         # Embedder — encode() + batch_encode()
+├── memory_store.py     # MemoryStore — ChromaDB CRUD + search
+├── memory_updater.py   # MemoryUpdater (EventBus service)
+└── semantic_search.py  # SemanticSearch — query interface
+```
+
+### EventBus contract
+
+| Direction | Event | Payload |
+|-----------|-------|---------|
+| Subscribe | `analysis.file_analyzed` | `{file_path, analysis}` |
+
+```yaml
+# config/config.yaml
+memory:
+  enabled: true
+  chroma_db_path: ".chroma"
+  embedding_model: "all-MiniLM-L6-v2"
+  retention_days: 90
+```
+
+---
+
+## Module 8 — Obsidian Engine
+
+Writes analysis results as rich Obsidian-compatible markdown notes:
+
+- **VaultWriter** — async write queue with `write`, `delete`, `mkdir` operations
+- **VaultIndex** — in-memory index of all vault notes (stem → path lookups)
+- **LinkResolver** — converts file paths to `[[wikilinks]]`, resolves duplicates with path disambiguation
+- **NoteBuilder** — assembles the final note: frontmatter + doc body + graph links + semantic neighbours
+- **ObsidianEngine** — EventBus service: subscribes to `docs.doc_updated` + `graph.graph_updated`
+
+```
+obsidian/
+├── vault.py            # VaultManager — write_note / read_note / list_notes
+├── vault_index.py      # VaultIndex — stem-based lookup, startup scan
+├── vault_writer.py     # VaultWriter — async queue, atomic writes
+├── link_resolver.py    # LinkResolver — path_to_wikilink / resolve_links
+├── note_builder.py     # NoteBuilder — assemble final markdown
+├── markdown.py         # markdown helpers
+└── obsidian_engine.py  # Module8ObsidianEngine (EventBus service)
+```
+
+### EventBus contract
+
+| Direction | Event | Payload |
+|-----------|-------|---------|
+| Subscribe | `docs.doc_updated` | `{path, markdown_content, frontmatter}` |
+| Subscribe | `graph.graph_updated` | `{updated_node, edges_added, edges_removed, stats}` |
+| Publish | `obsidian.note_written` | `{vault_path, source_path}` |
+
+---
+
+## Module 9 — Git Integration Engine
+
+Monitors commits and stores AI-generated summaries in memory:
+
+- **GitMonitor** — polls `git log` for new commits, publishes `git.commit` events
+- **CommitSummarizer** — sends diff + metadata to AI, parses structured `CommitSummary`
+- **GitMemory** — stores commit summaries in ChromaDB for semantic retrieval
+- **GitEngine** — long-lived service wiring all of the above
+
+```
+git_integration/
+├── git_types.py        # CommitInfo, CommitSummary dataclasses
+├── git_monitor.py      # GitMonitor — poll + publish git.commit
+├── commit_summarizer.py # CommitSummarizer — AI-based diff → summary
+├── git_memory.py       # GitMemory — store/search commit summaries
+└── git_engine.py       # GitEngine (EventBus service)
+```
+
+### EventBus contract
+
+| Direction | Event | Payload |
+|-----------|-------|---------|
+| Publish | `git.commit` | `{commit: CommitInfo}` |
+| Publish | `git.commit_summarized` | `{commit_hash, summary: CommitSummary}` |
+
+```yaml
+# config/config.yaml
+git:
+  enabled: true
+  repo_path: "."
+  poll_interval_seconds: 60.0
+```
+
+---
+
+## Module 10 — Intelligence Engine
+
+Autonomous analysis cycle that synthesises across all modules:
+
+- **PatternDetector** — detects anti-patterns in the graph (high complexity, orphan files, hubs, cycles)
+- **RefactorSuggester** — calls AI with pattern context → produces `Suggestion` with rationale
+- **SuggestionStore** — persists suggestions to disk; deduplicates by pattern fingerprint
+- **IntelligenceEngine** — runs on a 60-minute cycle + triggered by `graph.graph_updated`; also exposes `query_codebase()` for natural-language Q&A
+
+```
+intelligence/
+├── intelligence_types.py  # Pattern, Suggestion dataclasses
+├── pattern_detector.py    # detect_anti_patterns(graph, analyses)
+├── refactor_suggester.py  # suggest(pattern, ai) → Suggestion
+├── suggestion_store.py    # SuggestionStore — persist, deduplicate, query
+└── intelligence_engine.py # IntelligenceEngine (EventBus service)
+```
+
+### EventBus contract
+
+| Direction | Event | Payload |
+|-----------|-------|---------|
+| Subscribe | `graph.graph_updated` | triggers analysis cycle |
+| Publish | `intelligence.suggestions_ready` | `{suggestions: list[Suggestion]}` |
+
+```yaml
+# config/config.yaml
+intelligence:
+  enabled: true
+  cycle_interval_seconds: 3600
+  min_severity: "medium"
+  store_path: ".suggestions"
+```
 
 ---
 
@@ -368,22 +465,22 @@ On load failure the engine starts with a fresh empty graph and logs a warning �
 ```
 ProjectMind/
 ├── core/               # M1 — config, logging, registry, bootstrap, EventBus
-├── obsidian/           # M1 — vault manager + markdown helpers
+├── obsidian/           # M8 — vault manager + Obsidian note writer
 ├── watcher/            # M2 — filesystem monitoring
 ├── ai/                 # M3 — Ollama/Qwen AI client
 ├── analysis/           # M4 — code analysis engine
 ├── docs/               # M5 — documentation engine
 ├── graph/              # M6 — dependency graph engine
-├── memory/             # 🔜 M7 — long-term memory
-├── git/                # 🔜 git history parsing
-├── intelligence/       # 🔜 cross-module synthesis
+├── memory/             # M7 — ChromaDB semantic memory
+├── git_integration/    # M9 — git commit monitor + summariser
+├── intelligence/       # M10 — autonomous pattern detection + Q&A
 ├── config/             # YAML configuration files
 ├── templates/          # markdown note templates
 ├── vault/              # Obsidian knowledge store (gitignored)
 ├── logs/               # rotating logs (gitignored)
 ├── tests/              # pytest suite
 ├── main.py             # entry point
-├── requirements.txt    # runtime deps: PyYAML, watchdog, ollama, Jinja2, networkx
+├── requirements.txt    # runtime deps
 └── pyproject.toml      # project metadata + pytest config
 ```
 
@@ -396,7 +493,7 @@ pip install -r requirements-dev.txt
 python3 -m pytest -q
 ```
 
-**96 tests** covering: config, registry, vault, markdown, watcher, AI prompts/parsing/fallback, AST extraction, complexity, dependency mapping, EventBus flows, doc generation, changelog diffing, template rendering, graph node/edge mutations, graph persistence (save/load/auto-save/atomic-write), orphan/hub/cycle/hotspot analysis, and end-to-end service integration for M5 and M6.
+**259 tests** covering: config, registry, vault, markdown, watcher, AI prompts/parsing/fallback, AST extraction, complexity, dependency mapping, EventBus flows, doc generation, changelog diffing, template rendering, graph node/edge/persistence/analysis, memory chunking/embedding/store/search, Obsidian vault/index/writer/link-resolver/note-builder/engine, git monitor/summarizer/memory/engine, and intelligence pattern-detection/refactor-suggester/suggestion-store/engine.
 
 ---
 

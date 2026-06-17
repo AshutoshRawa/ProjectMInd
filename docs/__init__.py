@@ -11,13 +11,13 @@ that responsibility belongs to Module 8.
 from docs.changelog import ChangelogEntry, diff_analyses, format_changelog
 from docs.doc_engine import Module5DocEngine
 from docs.doc_generator import generate
-from docs.frontmatter import build_frontmatter
+from docs.frontmatter import build_analysis_frontmatter
 from docs.template_engine import render_doc_template
 
 __all__ = [
     "ChangelogEntry",
     "Module5DocEngine",
-    "build_frontmatter",
+    "build_analysis_frontmatter",
     "diff_analyses",
     "format_changelog",
     "generate",

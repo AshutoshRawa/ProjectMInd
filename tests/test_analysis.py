@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from analysis import Module4AnalyzerEngine
 from analysis.analysis_types import FileAnalysis, FunctionInfo
-from analysis.ast_analyzer import analyze_python
+from analysis.ast_analyzer import analyze_python, analyze_python_file
 from analysis.complexity import file_complexity_score
 from analysis.dependency_mapper import build_dependency_graph, resolve_local_import
 from core import AnalysisSettings, EventBus
@@ -59,6 +59,33 @@ def test_analyze_python_extracts_structure(tmp_path: Path) -> None:
     assert func.params == ["name", "verbose"]
     assert func.calls == ["Path", "print"]
     assert func.complexity >= 3
+
+
+def test_analyze_python_file_uses_shared_json_parser(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = tmp_path / "sample.py"
+    target.write_text("def run():\n    return 1\n", encoding="utf-8")
+    parsed_responses: list[str] = []
+
+    monkeypatch.setattr(
+        "analysis.ast_analyzer.parse_json_object",
+        lambda text: (
+            parsed_responses.append(text)
+            or {"purpose": "Run a task.", "suggestions": ["Add a docstring."]}
+        ),
+    )
+    monkeypatch.setattr(
+        "ai.get_ai",
+        lambda: SimpleNamespace(complete=lambda _name, _variables: "AI response"),
+    )
+
+    analysis = analyze_python_file(target)
+
+    assert parsed_responses == ["AI response"]
+    assert analysis.ai_summary == "Run a task."
+    assert analysis.anti_patterns == ["Add a docstring."]
 
 
 def test_module4_consumes_watcher_event_and_publishes_analysis(

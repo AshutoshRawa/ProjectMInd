@@ -4,6 +4,7 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 
+from analysis._json_utils import parse_json_object
 from analysis.analysis_types import FileAnalysis, FunctionInfo
 from analysis.complexity import cyclomatic_complexity
 
@@ -172,22 +173,7 @@ def analyze_python_file(path: Path) -> FileAnalysis:
             "code_analysis",
             {"file_path": str(path), "language": "python", "code": source},
         )
-        # Try to parse structured JSON response.
-        import json as _json
-        import re as _re
-
-        cleaned = text.strip()
-        fence = _re.search(r"```(?:json|JSON)?\s*([\s\S]*?)\s*```", cleaned)
-        if fence:
-            cleaned = fence.group(1).strip()
-        try:
-            parsed = _json.loads(cleaned)
-        except _json.JSONDecodeError:
-            obj_match = _re.search(r"\{[\s\S]*\}", cleaned)
-            try:
-                parsed = _json.loads(obj_match.group(0)) if obj_match else None
-            except (_json.JSONDecodeError, AttributeError):
-                parsed = None
+        parsed = parse_json_object(text)
 
         if isinstance(parsed, dict):
             purpose = parsed.get("purpose")

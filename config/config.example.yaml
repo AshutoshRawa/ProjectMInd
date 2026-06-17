@@ -7,6 +7,7 @@
 #
 # You can also override any value with an environment variable, e.g.
 #     export PROJECTMIND_LOGGING__LEVEL=DEBUG
+#     export PROJECTMIND_WATCHER__ENABLED=true
 # =============================================================================
 
 app:
@@ -15,7 +16,7 @@ app:
   instance_id: "my-laptop"
 
 logging:
-  level: "DEBUG"            # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  level: "INFO"             # DEBUG | INFO | WARNING | ERROR | CRITICAL
   console_color: true
 
 paths:
@@ -24,13 +25,80 @@ paths:
   # Where the Obsidian-compatible vault lives.
   vault_dir: "vault"
 
-watcher:
-  # Enable filesystem monitoring (backend/, frontend/, src/, app/)
-  enabled: false
-  debounce_seconds: 2.0
-
+# ---------------------------------------------------------------------------
+# AI — Module 3
+# ---------------------------------------------------------------------------
 ai:
   # Override the model if you have a smaller / larger one pulled in Ollama.
+  # Run: ollama pull qwen2.5-coder:14b
   default_model: "qwen2.5-coder:14b"
   fallback_model: "qwen2.5-coder:14b"
   ollama_host: "http://localhost:11434"
+  timeout: 120
+  temperature: 0.2
+
+# ---------------------------------------------------------------------------
+# Watcher — Module 2
+# ---------------------------------------------------------------------------
+watcher:
+  # Enable filesystem monitoring (watch_dirs are relative to project_root)
+  enabled: false
+  watch_dirs:
+    - "backend"
+    - "frontend"
+    - "src"
+    - "app"
+  debounce_seconds: 2.0
+
+# ---------------------------------------------------------------------------
+# Code analysis — Module 4
+# ---------------------------------------------------------------------------
+analysis:
+  enabled: false
+  batch_size: 20
+
+# ---------------------------------------------------------------------------
+# Documentation generator — Module 5
+# ---------------------------------------------------------------------------
+docs:
+  enabled: false
+  max_changelog_entries: 5
+
+# ---------------------------------------------------------------------------
+# Dependency graph — Module 6
+# ---------------------------------------------------------------------------
+graph:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Semantic memory (ChromaDB) — Module 7
+# ---------------------------------------------------------------------------
+memory:
+  enabled: false
+  retention_days: 90
+  chroma_db_path: ".chroma"
+  embedding_model: "all-MiniLM-L6-v2"
+
+# ---------------------------------------------------------------------------
+# Obsidian vault writer — Module 8
+# ---------------------------------------------------------------------------
+obsidian:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Git integration — Module 9
+# ---------------------------------------------------------------------------
+git:
+  enabled: false
+  # Path to the git repository root (relative to project_root, or absolute)
+  repo_path: "."
+  poll_interval_seconds: 60.0
+
+# ---------------------------------------------------------------------------
+# Autonomous intelligence — Module 10
+# ---------------------------------------------------------------------------
+intelligence:
+  enabled: false
+  cycle_interval_seconds: 3600   # run background analysis every 60 minutes
+  min_severity: "medium"         # low | medium | high
+  store_path: ".suggestions"     # persisted suggestions directory

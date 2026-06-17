@@ -46,3 +46,7 @@ class PromptNotFoundError(AIError):
 
 class ResponseParseError(AIError):
     """Raised when an AI response cannot be parsed (JSON extraction or schema validation)."""
+
+
+class MemoryError(ProjectMindError):
+    """Raised when the memory engine (ChromaDB / embedder) cannot operate."""

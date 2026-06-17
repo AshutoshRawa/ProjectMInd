@@ -350,7 +350,7 @@ def build_changes(s):
          "Fixed broken import; now exports ConfigLoader, ServiceRegistry, "
          "Application, ProjectMindError, get_logger, bootstrap."],
         ["obsidian/__init__.py",
-         "Exports VaultManager, build_frontmatter, parse_frontmatter, compose_note."],
+         "Exports VaultManager, build_note_frontmatter, parse_frontmatter, compose_note."],
         ["pyproject.toml",
          "Tightened pytest config and tool metadata after first review pass."],
     ]

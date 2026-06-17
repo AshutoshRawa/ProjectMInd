@@ -16,15 +16,16 @@ from dataclasses import asdict
 from typing import Any
 
 from analysis.analysis_types import FileAnalysis
-from core import Analyzer, EventBus, get_logger
+from core import EventBus, get_logger
+from core.interfaces import DocumentationGenerator
 from docs.changelog import ChangelogEntry, diff_analyses
 from docs.doc_generator import generate
-from docs.frontmatter import build_frontmatter
+from docs.frontmatter import build_analysis_frontmatter
 
 log = get_logger(__name__)
 
 
-class Module5DocEngine(Analyzer):
+class Module5DocEngine(DocumentationGenerator):
     """Long-lived service that converts analysis results into documentation.
 
     Lifecycle
@@ -121,10 +122,13 @@ class Module5DocEngine(Analyzer):
     def _process(self, payload: dict[str, Any]) -> None:
         # Skip payloads for deleted or errored files.
         analysis_raw = payload.get("analysis")
-        if analysis_raw is None:
-            return
-
         file_path = payload.get("file_path", "")
+
+        if analysis_raw is None:
+            # File was deleted or analysis failed — evict from cache.
+            if file_path:
+                self._previous.pop(file_path, None)
+            return
 
         # Reconstruct FileAnalysis from the dict payload.
         if isinstance(analysis_raw, dict):
@@ -145,7 +149,7 @@ class Module5DocEngine(Analyzer):
 
         # Generate the markdown document.
         markdown_content = generate(analysis, changelog_entries=changelog_entries)
-        frontmatter_str = build_frontmatter(analysis)
+        frontmatter_str = build_analysis_frontmatter(analysis)
 
         self._bus.publish(
             self._output_event,
