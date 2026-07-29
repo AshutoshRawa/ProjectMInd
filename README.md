@@ -6,61 +6,63 @@
 
 ---
 
-## Modules
+## Table of Contents
 
-| # | Module | Status | Description |
-|---|--------|--------|-------------|
-| 1 | Foundation Engine | ✅ | Config, logging, registry, bootstrap, vault, EventBus |
-| 2 | Watcher Engine | ✅ | Recursive filesystem monitoring with debounce |
-| 3 | AI Communication | ✅ | Ollama/Qwen client with prompt templates |
-| 4 | Code Analysis | ✅ | AST extraction, complexity, dependency mapping |
-| 5 | Documentation Engine | ✅ | Markdown generation with frontmatter & changelogs |
-| 6 | Graph Engine | ✅ | Incremental dependency graph — orphans, hubs, cycles, hotspots |
-| 7 | Memory Engine | ✅ | Semantic memory with ChromaDB — chunking, embedding, search |
-| 8 | Obsidian Engine | ✅ | Vault writer — links, index, note builder, async queue |
-| 9 | Git Integration | ✅ | Commit monitor, AI summariser, git memory store |
-| 10 | Intelligence Engine | ✅ | Autonomous pattern detection, refactor suggestions, codebase Q&A |
-
----
-
-## Quick Start
-
-```bash
-git clone <your-fork> ProjectMind && cd ProjectMind
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# Copy and edit the example config (enable the modules you want)
-cp config/config.example.yaml config/config.yaml
-
-# Pull the required Ollama model
-ollama pull qwen2.5-coder:14b
-
-python main.py
-```
-
-Override any config via environment variables:
-
-```bash
-PROJECTMIND_LOGGING__LEVEL=DEBUG PROJECTMIND_WATCHER__ENABLED=true python main.py
-```
-
-Enable modules incrementally in `config/config.yaml`:
-
-```yaml
-watcher:    { enabled: true }
-analysis:   { enabled: true }
-docs:       { enabled: true }
-graph:      { enabled: true }
-memory:     { enabled: true }
-obsidian:   { enabled: true }
-git:        { enabled: true }
-intelligence: { enabled: true }
-```
+- [What Is ProjectMind?](#what-is-projectmind)
+- [The Problem It Solves](#the-problem-it-solves)
+- [Features](#features)
+- [Architecture Overview](#architecture-overview)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Environment Variables](#environment-variables)
+- [Running ProjectMind](#running-projectmind)
+- [Usage](#usage)
+- [Module Reference](#module-reference)
+- [Project Layout](#project-layout)
+- [Testing](#testing)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ---
 
-## Architecture
+## What Is ProjectMind?
+
+ProjectMind is a fully local, privacy-first tool that sits alongside your codebase and continuously learns about it. It uses a local LLM (Ollama + Qwen) to perform static analysis, generate documentation, track architectural changes, build a dependency graph, maintain a semantic memory store, summarize git commits, and surface refactoring suggestions — all written to an Obsidian-compatible markdown vault that you own and control.
+
+No data ever leaves your machine.
+
+---
+
+## The Problem It Solves
+
+- **Institutional knowledge loss** — Engineers leave, and with them goes the understanding of *why* code looks the way it does. ProjectMind continuously captures that context.
+- **Stale or missing documentation** — Docs go out of date the moment they're written. ProjectMind regenerates documentation automatically whenever files change.
+- **Invisible architectural drift** — Circular dependencies, orphan modules, and complexity hotspots accumulate silently. ProjectMind detects them and suggests fixes.
+- **Fragmented understanding** — Onboarding a new team member means reading thousands of lines. ProjectMind provides semantic search and natural-language Q&A over the entire codebase.
+
+---
+
+## Features
+
+| # | Module | Description |
+|---|--------|-------------|
+| 1 | **Foundation Engine** | Config (3-layer merge), logging (rotating + colored console), service registry (DI), EventBus (pub/sub), vault abstraction |
+| 2 | **Watcher Engine** | Recursive filesystem monitoring via `watchdog` with debounce, extension filtering, and ignore patterns |
+| 3 | **AI Communication** | Local Ollama/Qwen client with versioned prompt templates, JSON response parsing, async support, and automatic model fallback |
+| 4 | **Code Analysis** | Python AST extraction (functions, classes, imports, call graphs), cyclomatic complexity scoring, dependency mapping, AI-enriched summaries |
+| 5 | **Documentation Engine** | Markdown generation with YAML frontmatter, function tables, anti-pattern sections, dependency lists, and changelogs |
+| 6 | **Graph Engine** | Incremental directed dependency graph (NetworkX) — orphan detection, hub analysis, cycle detection, complexity hotspots |
+| 7 | **Memory Engine** | Semantic long-term memory via ChromaDB + `sentence-transformers` — chunking, embedding, similarity search |
+| 8 | **Obsidian Engine** | Async vault writer — `[[wikilinks]]`, note builder, index, link resolver, rich Obsidian-compatible notes |
+| 9 | **Git Integration** | Commit monitor, AI-powered diff summarizer, commit memory store for semantic retrieval |
+| 10 | **Intelligence Engine** | Autonomous anti-pattern detection, AI-generated refactoring suggestions, natural-language codebase Q&A |
+
+All modules communicate through a decoupled **EventBus** and can be enabled or disabled independently.
+
+---
+
+## Architecture Overview
 
 ```
 main.py → core.bootstrap
@@ -77,78 +79,109 @@ main.py → core.bootstrap
 watcher ai analysis docs graph mem obsidian intel
 ```
 
-**Rules:**
-- All inter-module communication through `EventBus` only
-- Every module imports only from another module's `__init__.py`
-- All AI calls go through `get_ai().complete('prompt_name', variables)`
-
----
-
-## EventBus Event Flow
+### EventBus Event Flow
 
 ```
 watcher.file_change
-    └─► M4: analysis.file_analyzed
-            ├─► M5: docs.doc_updated
-            │       └─► M8: obsidian.note_written
-            ├─► M6: graph.graph_updated
-            │       └─► M8: (graph links in notes)
-            │       └─► M10: intelligence.suggestions_ready
-            └─► M7: (memory chunks upserted)
+    └─► analysis.file_analyzed
+            ├─► docs.doc_updated
+            │       └─► obsidian.note_written
+            ├─► graph.graph_updated
+            │       └─► intelligence.suggestions_ready
+            └─► (memory chunks upserted)
 
 git.commit
-    └─► M9: git.commit_summarized
-            └─► M7: (commit stored in memory)
+    └─► git.commit_summarized
+            └─► (commit stored in memory)
+```
+
+**Design rules:**
+- All inter-module communication goes through the `EventBus` — no direct cross-module calls.
+- Every module imports only from another module's `__init__.py`.
+- All AI calls route through `get_ai().complete("prompt_name", variables)`.
+
+---
+
+## Prerequisites
+
+| Requirement | Version | Purpose |
+|-------------|---------|---------|
+| **Python** | ≥ 3.12 | Runtime |
+| **Ollama** | Latest | Local LLM inference server |
+| **Qwen model** | `qwen2.5-coder:14b` (recommended) | Code analysis, doc generation, commit summaries, refactoring suggestions |
+| **Git** | Any recent version | Required if you enable the Git Integration module (M9) |
+
+### Installing Ollama
+
+Follow the instructions at [ollama.com](https://ollama.com) to install Ollama for your OS. Once installed:
+
+```bash
+# Start the Ollama server (if not running as a system service)
+ollama serve
+
+# Pull the recommended model
+ollama pull qwen2.5-coder:14b
 ```
 
 ---
 
-## Module 1 — Foundation Engine
+## Installation
 
-Core infrastructure for all modules:
+```bash
+# 1. Clone the repository
+git clone https://github.com/<your-username>/ProjectMind.git
+cd ProjectMind
 
-- **Config** — 3-layer merge: `default_config.yaml` → `config.yaml` → `PROJECTMIND_*` env vars
-- **Logger** — rotating file + colored console under `projectmind` namespace
-- **ServiceRegistry** — thread-safe DI container with singleton + factory support
-- **Bootstrap** — wires config → logger → vault → services → signal handlers
-- **Vault** — Obsidian-compatible markdown store with atomic writes and YAML frontmatter
-- **Interfaces** — abstract contracts (`FileWatcher`, `AIClient`, `Analyzer`, `MemoryEngine`, `GraphBuilder`)
-- **EventBus** — synchronous pub/sub for decoupled module communication
+# 2. Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate        # macOS / Linux
+# .venv\Scripts\activate         # Windows
+
+# 3. Install runtime dependencies
+pip install -r requirements.txt
+
+# 4. (Optional) Install dev/test dependencies
+pip install -r requirements-dev.txt
+
+# 5. Create your local config file
+cp config/config.example.yaml config/config.yaml
+```
+
+> **Note:** `config/config.yaml` is git-ignored, so your local settings are never committed.
 
 ---
 
-## Module 2 — Watcher Engine
+## Configuration
 
-Recursive filesystem monitoring via `watchdog`:
+ProjectMind uses a **3-layer configuration merge**:
 
-- **Watches:** `backend/`, `frontend/`, `src/`, `app/` (configurable)
-- **Tracks:** `.py`, `.js`, `.ts`, `.tsx`, `.jsx`, `.md`, `.json`
-- **Ignores:** `node_modules`, `.git`, `__pycache__`, `dist`, `build`, `venv`, `.next`
-- **Events:** `CREATED`, `MODIFIED`, `DELETED`, `MOVED` → debounced → published as `watcher.file_change`
+1. `config/default_config.yaml` — built-in defaults (do not edit)
+2. `config/config.yaml` — your local overrides (copy from `config.example.yaml`)
+3. `PROJECTMIND_*` environment variables — highest priority, override everything
 
-```
-watcher/
-├── events.py           # FileChangeEvent, ChangeKind
-├── filters.py          # extension + path filtering
-├── file_tracker.py     # debounce + deduplication
-├── watcher.py          # watchdog handler
-└── watcher_manager.py  # FileWatcher service
-```
+### Key Configuration Sections
 
----
-
-## Module 3 — AI Communication Engine
-
-Single interface to local Ollama (Qwen models):
-
-- **`get_ai().complete("prompt_name", variables)`** — templated prompt rendering + model call
-- **Fallback** — auto-switches to `fallback_model` when primary is missing
-- **Prompts** — `code_analysis`, `doc_generation`, `commit_summary`, `refactor_suggestion`
-- **Parsing** — extracts JSON from fenced/prose-wrapped responses, validates schemas
-- **Async** — `acomplete()` / `acomplete_raw()` via `ollama.AsyncClient`
+Edit `config/config.yaml` to enable modules and customize behavior:
 
 ```yaml
-# config/config.yaml
+# --- Application identity ---
+app:
+  instance_id: "my-laptop"       # Useful for multi-project setups
+
+# --- Paths ---
+paths:
+  project_root: "."              # The codebase ProjectMind will learn about
+  vault_dir: "vault"             # Obsidian-compatible output vault
+  logs_dir: "logs"               # Rotating log files
+
+# --- Logging ---
+logging:
+  level: "INFO"                  # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  console_color: true
+  max_bytes: 5242880             # 5 MB per log file
+  backup_count: 5
+
+# --- AI (Ollama) ---
 ai:
   ollama_host: "http://localhost:11434"
   default_model: "qwen2.5-coder:14b"
@@ -156,307 +189,290 @@ ai:
   timeout: 120
   max_tokens: 4096
   temperature: 0.2
+
+# --- Enable modules individually ---
+watcher:      { enabled: true }
+analysis:     { enabled: true }
+docs:         { enabled: true }
+graph:        { enabled: true }
+memory:       { enabled: true }
+obsidian:     { enabled: true }
+git:          { enabled: true }
+intelligence: { enabled: true }
 ```
 
-```
-ai/
-├── ai_manager.py       # AIManager service + get_ai() singleton
-├── prompt_registry.py  # versioned prompt template store
-└── response_parser.py  # JSON extraction + schema validation
-```
+### Module-specific Configuration
 
----
-
-## Module 4 — Code Analysis Engine
-
-Static analysis + AI enrichment for Python files:
-
-- **AST extraction** — functions, classes, imports, call graphs, docstring detection
-- **Cyclomatic complexity** — per-function and weighted file-level score
-- **Dependency mapping** — `build_dependency_graph()` for project-local imports
-- **AI enrichment** — `code_analysis` prompt for summaries and anti-pattern detection
-- **JSON serialization** — `FileAnalysis.to_dict()` / `.from_dict()` / `.to_json()` / `.from_json()`
-- **EventBus** — subscribes to `watcher.file_change`, publishes `analysis.file_analyzed`
-
-```
-analysis/
-├── analysis_types.py    # FileAnalysis, FunctionInfo dataclasses
-├── analyzer_engine.py   # Module4AnalyzerEngine (EventBus service)
-├── ast_analyzer.py      # Python AST extraction + analyze_python_file()
-├── complexity.py        # cyclomatic_complexity() + file_complexity_score()
-└── dependency_mapper.py # build_dependency_graph() + resolve_local_import()
-```
-
-### Key types
-
-```python
-@dataclass(frozen=True)
-class FunctionInfo:
-    name: str
-    line_start: int
-    line_end: int
-    params: list[str]
-    complexity: int       # cyclomatic
-    has_docstring: bool
-    calls: list[str]
-
-@dataclass(frozen=True)
-class FileAnalysis:
-    path: str
-    language: str
-    lines_of_code: int
-    functions: list[FunctionInfo]
-    classes: list[str]
-    imports: list[str]
-    ai_summary: str
-    anti_patterns: list[str]
-    analyzed_at: float
-```
-
----
-
-## Module 5 — Documentation Engine
-
-Converts `FileAnalysis` results into structured markdown strings.  
-**Boundary rule: produces strings only — never writes to the Obsidian vault** (that is Module 8's job).
-
-### Files
-
-```
-docs/
-├── frontmatter.py      # build_frontmatter(analysis) → YAML --- block
-├── doc_generator.py    # generate(analysis, changelog_entries) → full markdown
-├── changelog.py        # ChangelogEntry · diff_analyses() · format_changelog()
-├── template_engine.py  # Jinja2 string-templates + render_doc_template()
-└── doc_engine.py       # Module5DocEngine (EventBus service)
-```
-
-### Public API
-
-| Symbol | Signature | Description |
-|--------|-----------|-------------|
-| `build_frontmatter` | `(analysis: FileAnalysis) -> str` | YAML `---` block: file, language, lines, complexity, last_analyzed, tags |
-| `generate` | `(analysis, changelog_entries=None) -> str` | Full markdown: frontmatter + body sections |
-| `diff_analyses` | `(old, new: FileAnalysis) -> list[ChangelogEntry]` | Detects changes between two analysis snapshots |
-| `format_changelog` | `(entries, max=5) -> str` | Renders up to 5 changelog entries as a markdown bullet list |
-| `render_doc_template` | `(template_name, context) -> str` | Renders a named Jinja2 template (stored as strings in-module) |
-| `Module5DocEngine` | `(bus, ...) -> Service` | Long-lived EventBus service: start / stop |
-
-### Document sections (in order)
-
-```
-# <filename>                     ← H1
-> <ai_summary>                   ← blockquote
-
-## Functions                     ← table: name | params | complexity | docstring?
-## Anti-Patterns                 ← only rendered when list is non-empty
-## Dependencies                  ← import list
-## Changelog                     ← last 5 entries, most-recent first
-```
-
-### Changelog change types
-
-| Constant | Trigger |
-|----------|---------|
-| `FUNCTION_ADDED` | New function appears in analysis |
-| `FUNCTION_REMOVED` | Function deleted from analysis |
-| `COMPLEXITY_CHANGED` | Weighted complexity score shifts |
-| `IMPORTS_CHANGED` | Import list additions or removals |
-| `AI_SUMMARY_CHANGED` | AI summary text differs |
-
-### EventBus contract
-
-| Direction | Event | Payload |
-|-----------|-------|---------|
-| Subscribe | `analysis.file_analyzed` | `{file_path, analysis}` |
-| Publish | `docs.doc_updated` | `{path, markdown_content, frontmatter}` |
-
----
-
-## Module 6 — Graph Engine
-
-Builds and maintains an **incremental directed dependency graph** of the codebase.  
-**Boundary rule: outputs graph data only — never writes to the Obsidian vault** (that is Module 8's job).
-
-### Files
-
-```
-graph/
-├── graph_builder.py    # GraphEngine — wraps networkx.DiGraph, incremental mutations
-├── graph_state.py      # GraphStateManager · save_graph() · load_graph()
-├── graph_analyzer.py   # find_orphans · find_hubs · find_circular_deps · complexity_hotspots
-└── graph_engine.py     # Module6GraphEngine (EventBus service)
-```
-
-### Public API
-
-#### `GraphEngine` — `graph/graph_builder.py`
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `update_node` | `(analysis: FileAnalysis)` | Add or patch a file node (**incremental** — only touches that node) |
-| `update_edges` | `(analysis: FileAnalysis) -> (added, removed)` | Sync import edges; returns lists of targets added/removed |
-| `remove_node` | `(path: str)` | Remove a node and all its incident edges (safe on missing) |
-| `get_neighbors` | `(path: str) -> list[str]` | Direct import successors of `path` |
-| `get_related_files` | `(path: str, depth=2) -> list[str]` | BFS reachable files within `depth` hops |
-
-#### `graph_analyzer.py` — pure, side-effect-free functions
-
-| Function | Returns | Description |
-|----------|---------|-------------|
-| `find_orphans(graph)` | `list[str]` | Nodes with zero in-edges **and** zero out-edges |
-| `find_hubs(graph, threshold=5)` | `list[str]` | Nodes imported by ≥ `threshold` others (high in-degree), sorted desc |
-| `find_circular_deps(graph)` | `list[list[str]]` | All simple cycles via Johnson's algorithm |
-| `complexity_hotspots(graph)` | `list[str]` | Nodes in top-quartile complexity **and** top-quartile in-degree |
-
-### EventBus contract
-
-| Direction | Event | Payload |
-|-----------|-------|---------|
-| Subscribe | `analysis.file_analyzed` | `{file_path, analysis}` |
-| Publish | `graph.graph_updated` | `{updated_node, edges_added, edges_removed, stats}` |
-
-### Persistence
-
-Graph serialised to `graph_state.json` (networkx node-link format). Auto-save every **10 updates**; `stop()` forces a final save. Load failure starts a fresh empty graph — never crashes.
-
----
-
-## Module 7 — Memory Engine
-
-Semantic long-term memory backed by **ChromaDB** and `sentence-transformers`:
-
-- **Chunker** — splits `FileAnalysis` into overlapping text chunks with rich metadata
-- **Embedder** — `all-MiniLM-L6-v2` embeddings via `sentence-transformers`
-- **MemoryStore** — ChromaDB collection wrapper with upsert, delete, and similarity search
-- **MemoryUpdater** — EventBus service: subscribes to `analysis.file_analyzed`, upserts chunks
-- **SemanticSearch** — `search(query, top_k)` returns ranked `MemoryChunk` results
-
-```
-memory/
-├── chunker.py          # split FileAnalysis → list[MemoryChunk]
-├── embedder.py         # Embedder — encode() + batch_encode()
-├── memory_store.py     # MemoryStore — ChromaDB CRUD + search
-├── memory_updater.py   # MemoryUpdater (EventBus service)
-└── semantic_search.py  # SemanticSearch — query interface
-```
-
-### EventBus contract
-
-| Direction | Event | Payload |
-|-----------|-------|---------|
-| Subscribe | `analysis.file_analyzed` | `{file_path, analysis}` |
+<details>
+<summary><strong>Watcher (Module 2)</strong></summary>
 
 ```yaml
-# config/config.yaml
+watcher:
+  enabled: true
+  watch_dirs: ["backend", "frontend", "src", "app"]
+  debounce_seconds: 2.0
+  watch_extensions: [".py", ".js", ".ts", ".tsx", ".jsx", ".md", ".json"]
+  ignore_patterns:
+    - "**/__pycache__/**"
+    - "**/.git/**"
+    - "**/node_modules/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/venv/**"
+```
+</details>
+
+<details>
+<summary><strong>Analysis (Module 4)</strong></summary>
+
+```yaml
+analysis:
+  enabled: true
+  batch_size: 20                 # Max files per analysis batch
+  max_file_size: 524288          # Skip files > 512 KB
+```
+</details>
+
+<details>
+<summary><strong>Memory (Module 7)</strong></summary>
+
+```yaml
 memory:
   enabled: true
   chroma_db_path: ".chroma"
   embedding_model: "all-MiniLM-L6-v2"
   retention_days: 90
 ```
+</details>
 
----
-
-## Module 8 — Obsidian Engine
-
-Writes analysis results as rich Obsidian-compatible markdown notes:
-
-- **VaultWriter** — async write queue with `write`, `delete`, `mkdir` operations
-- **VaultIndex** — in-memory index of all vault notes (stem → path lookups)
-- **LinkResolver** — converts file paths to `[[wikilinks]]`, resolves duplicates with path disambiguation
-- **NoteBuilder** — assembles the final note: frontmatter + doc body + graph links + semantic neighbours
-- **ObsidianEngine** — EventBus service: subscribes to `docs.doc_updated` + `graph.graph_updated`
-
-```
-obsidian/
-├── vault.py            # VaultManager — write_note / read_note / list_notes
-├── vault_index.py      # VaultIndex — stem-based lookup, startup scan
-├── vault_writer.py     # VaultWriter — async queue, atomic writes
-├── link_resolver.py    # LinkResolver — path_to_wikilink / resolve_links
-├── note_builder.py     # NoteBuilder — assemble final markdown
-├── markdown.py         # markdown helpers
-└── obsidian_engine.py  # Module8ObsidianEngine (EventBus service)
-```
-
-### EventBus contract
-
-| Direction | Event | Payload |
-|-----------|-------|---------|
-| Subscribe | `docs.doc_updated` | `{path, markdown_content, frontmatter}` |
-| Subscribe | `graph.graph_updated` | `{updated_node, edges_added, edges_removed, stats}` |
-| Publish | `obsidian.note_written` | `{vault_path, source_path}` |
-
----
-
-## Module 9 — Git Integration Engine
-
-Monitors commits and stores AI-generated summaries in memory:
-
-- **GitMonitor** — polls `git log` for new commits, publishes `git.commit` events
-- **CommitSummarizer** — sends diff + metadata to AI, parses structured `CommitSummary`
-- **GitMemory** — stores commit summaries in ChromaDB for semantic retrieval
-- **GitEngine** — long-lived service wiring all of the above
-
-```
-git_integration/
-├── git_types.py        # CommitInfo, CommitSummary dataclasses
-├── git_monitor.py      # GitMonitor — poll + publish git.commit
-├── commit_summarizer.py # CommitSummarizer — AI-based diff → summary
-├── git_memory.py       # GitMemory — store/search commit summaries
-└── git_engine.py       # GitEngine (EventBus service)
-```
-
-### EventBus contract
-
-| Direction | Event | Payload |
-|-----------|-------|---------|
-| Publish | `git.commit` | `{commit: CommitInfo}` |
-| Publish | `git.commit_summarized` | `{commit_hash, summary: CommitSummary}` |
+<details>
+<summary><strong>Git (Module 9)</strong></summary>
 
 ```yaml
-# config/config.yaml
 git:
   enabled: true
   repo_path: "."
   poll_interval_seconds: 60.0
 ```
+</details>
+
+<details>
+<summary><strong>Intelligence (Module 10)</strong></summary>
+
+```yaml
+intelligence:
+  enabled: true
+  cycle_interval_seconds: 3600   # Background analysis every 60 minutes
+  min_severity: "medium"         # low | medium | high
+  store_path: ".suggestions"
+```
+</details>
 
 ---
 
-## Module 10 — Intelligence Engine
+## Environment Variables
 
-Autonomous analysis cycle that synthesises across all modules:
+Any configuration value can be overridden via an environment variable prefixed with `PROJECTMIND_`. Nested keys use double underscores (`__`) as separators.
 
-- **PatternDetector** — detects anti-patterns in the graph (high complexity, orphan files, hubs, cycles)
-- **RefactorSuggester** — calls AI with pattern context → produces `Suggestion` with rationale
-- **SuggestionStore** — persists suggestions to disk; deduplicates by pattern fingerprint
-- **IntelligenceEngine** — runs on a 60-minute cycle + triggered by `graph.graph_updated`; also exposes `query_codebase()` for natural-language Q&A
+| Variable | Config equivalent | Example |
+|----------|-------------------|---------|
+| `PROJECTMIND_LOGGING__LEVEL` | `logging.level` | `DEBUG` |
+| `PROJECTMIND_WATCHER__ENABLED` | `watcher.enabled` | `true` |
+| `PROJECTMIND_AI__OLLAMA_HOST` | `ai.ollama_host` | `http://192.168.1.50:11434` |
+| `PROJECTMIND_AI__DEFAULT_MODEL` | `ai.default_model` | `qwen2.5-coder:7b` |
+| `PROJECTMIND_AI__TIMEOUT` | `ai.timeout` | `180` |
+| `PROJECTMIND_AI__TEMPERATURE` | `ai.temperature` | `0.1` |
+| `PROJECTMIND_MEMORY__ENABLED` | `memory.enabled` | `true` |
+| `PROJECTMIND_GIT__ENABLED` | `git.enabled` | `true` |
+| `PROJECTMIND_GIT__POLL_INTERVAL_SECONDS` | `git.poll_interval_seconds` | `120` |
+| `PROJECTMIND_INTELLIGENCE__ENABLED` | `intelligence.enabled` | `true` |
+| `PROJECTMIND_INTELLIGENCE__MIN_SEVERITY` | `intelligence.min_severity` | `low` |
+| `PROJECTMIND_PATHS__PROJECT_ROOT` | `paths.project_root` | `/home/user/myproject` |
 
+Example — run with debug logging and the watcher enabled:
+
+```bash
+PROJECTMIND_LOGGING__LEVEL=DEBUG PROJECTMIND_WATCHER__ENABLED=true python main.py
 ```
-intelligence/
-├── intelligence_types.py  # Pattern, Suggestion dataclasses
-├── pattern_detector.py    # detect_anti_patterns(graph, analyses)
-├── refactor_suggester.py  # suggest(pattern, ai) → Suggestion
-├── suggestion_store.py    # SuggestionStore — persist, deduplicate, query
-└── intelligence_engine.py # IntelligenceEngine (EventBus service)
+
+---
+
+## Running ProjectMind
+
+```bash
+# Make sure Ollama is running
+ollama serve  # or it may already be running as a system service
+
+# Activate your virtual environment
+source .venv/bin/activate
+
+# Run ProjectMind
+python main.py
 ```
 
-### EventBus contract
+On startup, `main.py` will:
 
-| Direction | Event | Payload |
-|-----------|-------|---------|
-| Subscribe | `graph.graph_updated` | triggers analysis cycle |
-| Publish | `intelligence.suggestions_ready` | `{suggestions: list[Suggestion]}` |
+1. Bootstrap the foundation engine (config → logger → vault → service registry)
+2. Connect to Ollama and verify the AI model is available
+3. Start each enabled module in dependency order (Analysis → Docs → Graph → Memory → Obsidian → Git → Intelligence → Watcher)
+4. If the watcher is enabled, block and monitor the filesystem until you press `Ctrl+C`
+5. On shutdown, all services are stopped gracefully and pending state is persisted
+
+### Common Run Patterns
+
+```bash
+# Minimal — just test the foundation + AI connection
+python main.py
+
+# Watch a codebase and generate docs
+PROJECTMIND_WATCHER__ENABLED=true \
+PROJECTMIND_ANALYSIS__ENABLED=true \
+PROJECTMIND_DOCS__ENABLED=true \
+PROJECTMIND_OBSIDIAN__ENABLED=true \
+python main.py
+
+# Full pipeline — everything enabled
+PROJECTMIND_WATCHER__ENABLED=true \
+PROJECTMIND_ANALYSIS__ENABLED=true \
+PROJECTMIND_DOCS__ENABLED=true \
+PROJECTMIND_GRAPH__ENABLED=true \
+PROJECTMIND_MEMORY__ENABLED=true \
+PROJECTMIND_OBSIDIAN__ENABLED=true \
+PROJECTMIND_GIT__ENABLED=true \
+PROJECTMIND_INTELLIGENCE__ENABLED=true \
+python main.py
+```
+
+> **Tip:** It's simpler to set `enabled: true` in `config/config.yaml` for the modules you want, rather than passing many environment variables.
+
+---
+
+## Usage
+
+### Watching a Codebase
+
+Point `paths.project_root` at your target project and enable the watcher:
 
 ```yaml
-# config/config.yaml
-intelligence:
+paths:
+  project_root: "/path/to/your/project"
+
+watcher:
   enabled: true
-  cycle_interval_seconds: 3600
-  min_severity: "medium"
-  store_path: ".suggestions"
+  watch_dirs: ["src", "lib"]     # Subdirectories to monitor
 ```
+
+ProjectMind will detect file changes and propagate them through the pipeline:
+
+**File change** → **AST analysis** → **Doc generation** → **Graph update** → **Memory upsert** → **Obsidian note** → **Intelligence scan**
+
+### Opening the Vault in Obsidian
+
+1. Open [Obsidian](https://obsidian.md/)
+2. Choose **Open folder as vault**
+3. Select the `vault/` directory inside your ProjectMind installation
+4. Browse generated notes, explore `[[wikilinks]]` between files, and use Obsidian's graph view to visualize your codebase
+
+### Codebase Q&A (Module 10)
+
+When the Intelligence Engine is enabled, you can use `query_codebase()` programmatically for natural-language questions about your code — it combines semantic memory search with AI reasoning.
+
+---
+
+## Module Reference
+
+### Module 1 — Foundation Engine (`core/`)
+
+Core infrastructure shared by all modules:
+
+- **Config** — 3-layer merge: `default_config.yaml` → `config.yaml` → `PROJECTMIND_*` env vars
+- **Logger** — rotating file + colored console output under the `projectmind` namespace
+- **ServiceRegistry** — thread-safe dependency injection container (singleton + factory patterns)
+- **Bootstrap** — wires config → logger → vault → services → signal handlers
+- **Vault** — Obsidian-compatible markdown store with atomic writes and YAML frontmatter
+- **Interfaces** — abstract contracts (`FileWatcher`, `AIClient`, `Analyzer`, `MemoryEngine`, `GraphBuilder`)
+- **EventBus** — synchronous pub/sub for decoupled inter-module communication
+
+### Module 2 — Watcher Engine (`watcher/`)
+
+Recursive filesystem monitoring via `watchdog`:
+
+- **Watches:** configurable directories (default: `backend/`, `frontend/`, `src/`, `app/`)
+- **Tracks:** `.py`, `.js`, `.ts`, `.tsx`, `.jsx`, `.md`, `.json`
+- **Ignores:** `node_modules`, `.git`, `__pycache__`, `dist`, `build`, `venv`, `.next`
+- **Events:** `CREATED`, `MODIFIED`, `DELETED`, `MOVED` → debounced → published as `watcher.file_change`
+
+### Module 3 — AI Communication Engine (`ai/`)
+
+Single interface to local Ollama (Qwen models):
+
+- **`get_ai().complete("prompt_name", variables)`** — templated prompt rendering + model call
+- **Fallback** — auto-switches to `fallback_model` when the primary is unavailable
+- **Prompts** — `code_analysis`, `doc_generation`, `commit_summary`, `refactor_suggestion`
+- **Parsing** — extracts JSON from fenced/prose-wrapped responses, validates schemas
+- **Async** — `acomplete()` / `acomplete_raw()` via `ollama.AsyncClient`
+
+### Module 4 — Code Analysis Engine (`analysis/`)
+
+Static analysis + AI enrichment for Python files:
+
+- AST extraction — functions, classes, imports, call graphs, docstring detection
+- Cyclomatic complexity — per-function and weighted file-level scoring
+- Dependency mapping — project-local import graph construction
+- AI enrichment — summaries and anti-pattern detection via the `code_analysis` prompt
+
+### Module 5 — Documentation Engine (`docs/`)
+
+Converts analysis results into structured markdown (never writes to disk directly):
+
+- YAML frontmatter (file, language, lines, complexity, tags, timestamps)
+- Function tables, anti-pattern sections, dependency lists
+- Changelog with diff detection (`FUNCTION_ADDED`, `FUNCTION_REMOVED`, `COMPLEXITY_CHANGED`, `IMPORTS_CHANGED`, `AI_SUMMARY_CHANGED`)
+
+### Module 6 — Graph Engine (`graph/`)
+
+Incremental directed dependency graph backed by NetworkX:
+
+- **Mutations:** `update_node`, `update_edges`, `remove_node` — only touches affected nodes
+- **Queries:** `get_neighbors`, `get_related_files` (BFS within N hops)
+- **Analysis:** orphan detection, hub analysis (high in-degree), cycle detection (Johnson's algorithm), complexity hotspots
+- **Persistence:** auto-saves to `graph_state.json` every 10 updates
+
+### Module 7 — Memory Engine (`memory/`)
+
+Semantic long-term memory backed by ChromaDB:
+
+- Chunker splits analysis results into overlapping text chunks with metadata
+- Embedder uses `all-MiniLM-L6-v2` via `sentence-transformers`
+- Similarity search returns ranked `MemoryChunk` results
+- 90-day configurable retention window
+
+### Module 8 — Obsidian Engine (`obsidian/`)
+
+Writes analysis results as rich Obsidian-compatible notes:
+
+- Async write queue with atomic file operations
+- In-memory vault index (stem → path lookups)
+- `[[wikilink]]` resolution with path disambiguation
+- Note builder assembles: frontmatter + doc body + graph links + semantic neighbors
+
+### Module 9 — Git Integration (`git_integration/`)
+
+Monitors commits and stores AI-generated summaries:
+
+- Polls `git log` for new commits at a configurable interval
+- Sends diffs to AI for structured `CommitSummary` generation
+- Stores summaries in ChromaDB for semantic retrieval
+
+### Module 10 — Intelligence Engine (`intelligence/`)
+
+Autonomous analysis that synthesizes across all modules:
+
+- Pattern detection: high complexity, orphans, hubs, circular dependencies
+- AI-generated refactoring suggestions with rationale
+- Deduplication by pattern fingerprint
+- 60-minute background analysis cycle + triggered by graph updates
+- `query_codebase()` for natural-language Q&A over the codebase
 
 ---
 
@@ -464,24 +480,30 @@ intelligence:
 
 ```
 ProjectMind/
-├── core/               # M1 — config, logging, registry, bootstrap, EventBus
-├── obsidian/           # M8 — vault manager + Obsidian note writer
-├── watcher/            # M2 — filesystem monitoring
-├── ai/                 # M3 — Ollama/Qwen AI client
-├── analysis/           # M4 — code analysis engine
-├── docs/               # M5 — documentation engine
-├── graph/              # M6 — dependency graph engine
-├── memory/             # M7 — ChromaDB semantic memory
-├── git_integration/    # M9 — git commit monitor + summariser
-├── intelligence/       # M10 — autonomous pattern detection + Q&A
-├── config/             # YAML configuration files
-├── templates/          # markdown note templates
-├── vault/              # Obsidian knowledge store (gitignored)
-├── logs/               # rotating logs (gitignored)
-├── tests/              # pytest suite
-├── main.py             # entry point
-├── requirements.txt    # runtime deps
-└── pyproject.toml      # project metadata + pytest config
+├── main.py                 # Entry point
+├── pyproject.toml          # Project metadata + pytest config
+├── requirements.txt        # Runtime dependencies
+├── requirements-dev.txt    # Dev/test dependencies (includes runtime)
+│
+├── core/                   # M1 — Config, logging, registry, bootstrap, EventBus
+├── watcher/                # M2 — Filesystem monitoring
+├── ai/                     # M3 — Ollama/Qwen AI client
+├── analysis/               # M4 — Code analysis engine
+├── docs/                   # M5 — Documentation engine
+├── graph/                  # M6 — Dependency graph engine
+├── memory/                 # M7 — ChromaDB semantic memory
+├── obsidian/               # M8 — Obsidian vault writer
+├── git_integration/        # M9 — Git commit monitor + summarizer
+├── intelligence/           # M10 — Autonomous pattern detection + Q&A
+│
+├── config/                 # Configuration files
+│   ├── default_config.yaml # Built-in defaults (do not edit)
+│   └── config.example.yaml # Copy to config.yaml for local overrides
+│
+├── templates/              # Markdown note templates (Jinja2)
+├── vault/                  # Obsidian knowledge vault (git-ignored)
+├── logs/                   # Rotating log files (git-ignored)
+└── tests/                  # Pytest test suite
 ```
 
 ---
@@ -489,11 +511,114 @@ ProjectMind/
 ## Testing
 
 ```bash
+# Install dev dependencies (if not already installed)
 pip install -r requirements-dev.txt
+
+# Run the full test suite
 python3 -m pytest -q
+
+# Run tests with verbose output
+python3 -m pytest -v
+
+# Run a specific test file
+python3 -m pytest tests/test_analysis.py -v
 ```
 
-**259 tests** covering: config, registry, vault, markdown, watcher, AI prompts/parsing/fallback, AST extraction, complexity, dependency mapping, EventBus flows, doc generation, changelog diffing, template rendering, graph node/edge/persistence/analysis, memory chunking/embedding/store/search, Obsidian vault/index/writer/link-resolver/note-builder/engine, git monitor/summarizer/memory/engine, and intelligence pattern-detection/refactor-suggester/suggestion-store/engine.
+The test suite includes **260 tests** covering: config loading, service registry, vault operations, markdown helpers, watcher events/filtering/debounce, AI prompts/parsing/fallback, AST extraction, complexity scoring, dependency mapping, EventBus flows, doc generation, changelog diffing, template rendering, graph node/edge/persistence/analysis, memory chunking/embedding/store/search, Obsidian vault/index/writer/link-resolver/note-builder/engine, git monitor/summarizer/memory/engine, and intelligence pattern-detection/refactor-suggester/suggestion-store/engine.
+
+---
+
+## Troubleshooting
+
+### Ollama connection fails on startup
+
+```
+AI engine could not start — is Ollama running at http://localhost:11434?
+```
+
+**Fix:** Make sure the Ollama server is running:
+
+```bash
+ollama serve
+```
+
+If Ollama is on a different host or port, update `ai.ollama_host` in your config or set:
+
+```bash
+export PROJECTMIND_AI__OLLAMA_HOST="http://<host>:<port>"
+```
+
+### Model not found / fallback error
+
+**Fix:** Pull the required model:
+
+```bash
+ollama pull qwen2.5-coder:14b
+```
+
+To use a smaller model (e.g., on machines with limited VRAM), pull a smaller variant and update config:
+
+```bash
+ollama pull qwen2.5-coder:7b
+```
+
+```yaml
+ai:
+  default_model: "qwen2.5-coder:7b"
+  fallback_model: "qwen2.5-coder:7b"
+```
+
+### Watcher says "disabled" and exits immediately
+
+**Fix:** Enable the watcher in your config:
+
+```yaml
+watcher:
+  enabled: true
+```
+
+Or via environment variable:
+
+```bash
+PROJECTMIND_WATCHER__ENABLED=true python main.py
+```
+
+### No files are being detected by the watcher
+
+**Possible causes:**
+- Your source code is not in one of the watched directories (`backend/`, `frontend/`, `src/`, `app/` by default). Update `watcher.watch_dirs` to match your project structure.
+- The file extension is not in `watcher.watch_extensions`. Add your file types if needed.
+- The file path matches an ignore pattern. Check `watcher.ignore_patterns`.
+
+### ChromaDB or sentence-transformers errors
+
+**Fix:** Make sure all runtime dependencies are installed:
+
+```bash
+pip install -r requirements.txt
+```
+
+The `sentence-transformers` package will download the `all-MiniLM-L6-v2` model on first use (~80 MB). Ensure you have an internet connection for the initial download.
+
+### `[FATAL] ...` error on startup
+
+A `ProjectMindError` during bootstrap means the configuration could not be loaded. Check:
+
+- `config/config.yaml` exists and is valid YAML
+- No syntax errors in your YAML overrides
+- Environment variables use the correct `PROJECTMIND_` prefix and `__` separator
+
+### Vault not appearing in Obsidian
+
+**Fix:** The vault is written to the `vault/` directory (configurable via `paths.vault_dir`). Make sure at least the Obsidian module (M8) and one upstream module (Analysis + Docs) are enabled for notes to be generated.
+
+### Python version error
+
+ProjectMind requires **Python ≥ 3.12**. Check your version:
+
+```bash
+python3 --version
+```
 
 ---
 
